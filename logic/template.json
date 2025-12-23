@@ -1,0 +1,237 @@
+{
+  "_comment": "Slot Math Simulator 設定檔範本",
+  "_instructions": "請參考此範本建立您的設定檔。所有數值說明如下：",
+  
+  "meta": {
+    "_comment": "元資料：版本號與描述（僅供參考，不影響模擬）",
+    "version": "v0.2.0",
+    "description": "Slot Game MVP v0.2 - Outcome-based Design with Free Game Feature"
+  },
+  
+  "betConfig": {
+    "_comment": "下注設定",
+    "baseBet": 1,
+    "_comment_baseBet": "基礎下注金額（數字）。此值用於計算 RTP 分母（Total Base Bet = baseGameSpins × baseBet）",
+    "betLevels": [1, 2, 5, 10],
+    "_comment_betLevels": "下注等級陣列（可選，目前未使用）"
+  },
+  
+  "featureConfig": {
+    "_comment": "Feature 設定",
+    "freeSpinCount": 10,
+    "_comment_freeSpinCount": "Free Game 觸發時的免費 Spin 次數（數字，必須 > 0）。每次 Trigger 會產生此數量的 Free Spins"
+  },
+  
+  "_comment_symbols": "符號定義（僅供參考，不影響模擬邏輯）。此欄位定義遊戲中使用的符號，但模擬器僅使用 symbols 陣列中的 id 來顯示 Pattern",
+  "symbols": [
+    { "id": "H1", "name": "High1", "type": "HIGH" },
+    { "id": "H2", "name": "High2", "type": "HIGH" },
+    { "id": "M1", "name": "Mid1", "type": "MID" },
+    { "id": "M2", "name": "Mid2", "type": "MID" },
+    { "id": "L1", "name": "Low1", "type": "LOW" },
+    { "id": "L2", "name": "Low2", "type": "LOW" },
+    { "id": "W", "name": "Wild", "type": "WILD" },
+    { "id": "S", "name": "Scatter", "type": "SCATTER" }
+  ],
+  
+  "outcomeTables": {
+    "_comment": "Outcome 權重表：定義 BASE 與 FREE 兩個狀態的結果表",
+    "_comment_states": "BASE: 基礎遊戲狀態；FREE: 免費遊戲狀態",
+    
+    "BASE": {
+      "_comment": "BASE 狀態的 Outcome Table",
+      "outcomes": [
+        {
+          "_comment": "Outcome 定義範例",
+          "id": "MEGA_WIN",
+          "_comment_id": "Outcome 識別碼（字串，必須唯一，且必須在 patterns 中有對應定義）",
+          "weight": 1,
+          "_comment_weight": "權重（數字，必須 >= 0）。機率 = weight / 總權重",
+          "payoutMultiplier": 100,
+          "_comment_payoutMultiplier": "賠率倍數（數字）。Win Amount = payoutMultiplier × baseBet",
+          "type": "WIN",
+          "_comment_type": "類型：'WIN'（中獎）、'LOSS'（未中獎）、'FEATURE'（觸發 Feature，僅能出現在 BASE）"
+        },
+        {
+          "id": "BIG_WIN",
+          "weight": 4,
+          "payoutMultiplier": 20,
+          "type": "WIN"
+        },
+        {
+          "id": "MEDIUM_WIN",
+          "weight": 30,
+          "payoutMultiplier": 5,
+          "type": "WIN"
+        },
+        {
+          "id": "SMALL_WIN",
+          "weight": 140,
+          "payoutMultiplier": 2,
+          "type": "WIN"
+        },
+        {
+          "id": "FREE_GAME_TRIGGER",
+          "_comment_FEATURE": "FEATURE 類型的 Outcome：觸發 Free Game。payoutMultiplier 必須為 0",
+          "weight": 10,
+          "payoutMultiplier": 0,
+          "type": "FEATURE"
+        },
+        {
+          "id": "NEAR_MISS_1",
+          "_comment_NEAR_MISS": "Near Miss：視覺上接近中獎但 payoutMultiplier 為 0，type 為 LOSS",
+          "weight": 70,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        },
+        {
+          "id": "NEAR_MISS_2",
+          "weight": 70,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        },
+        {
+          "id": "LOSS",
+          "weight": 675,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        }
+      ],
+      "patterns": {
+        "_comment": "Pattern 定義：每個 Outcome ID 對應一個 Pattern 陣列",
+        "_comment_patterns": "模擬器會從對應的 Pattern 陣列中隨機選擇一個來顯示",
+        
+        "MEGA_WIN": [
+          {
+            "symbols": ["H1", "H1", "H1"],
+            "_comment_symbols": "符號陣列（字串陣列），用於顯示盤面",
+            "isWin": true,
+            "_comment_isWin": "是否為中獎 Pattern（布林值）。type: WIN 的 Outcome 建議使用 isWin: true 的 Pattern"
+          },
+          { "symbols": ["W", "W", "W"], "isWin": true }
+        ],
+        "BIG_WIN": [
+          { "symbols": ["H2", "H2", "H2"], "isWin": true },
+          { "symbols": ["H1", "H1", "W"], "isWin": true }
+        ],
+        "MEDIUM_WIN": [
+          { "symbols": ["M1", "M1", "M1"], "isWin": true },
+          { "symbols": ["M2", "M2", "M2"], "isWin": true }
+        ],
+        "SMALL_WIN": [
+          { "symbols": ["L1", "L1", "L1"], "isWin": true },
+          { "symbols": ["L2", "L2", "L2"], "isWin": true },
+          { "symbols": ["L1", "L1", "W"], "isWin": true }
+        ],
+        "FREE_GAME_TRIGGER": [
+          {
+            "_comment": "FEATURE 類型的 Outcome，isWin 通常為 false",
+            "symbols": ["S", "S", "S"],
+            "isWin": false
+          },
+          { "symbols": ["S", "S", "H1"], "isWin": false },
+          { "symbols": ["S", "H1", "S"], "isWin": false }
+        ],
+        "NEAR_MISS_1": [
+          { "symbols": ["H1", "H1", "L1"], "isWin": false },
+          { "symbols": ["W", "W", "L2"], "isWin": false }
+        ],
+        "NEAR_MISS_2": [
+          { "symbols": ["M1", "M1", "L1"], "isWin": false },
+          { "symbols": ["L1", "L1", "M1"], "isWin": false }
+        ],
+        "LOSS": [
+          { "symbols": ["L1", "H1", "M1"], "isWin": false },
+          { "symbols": ["M2", "L1", "L2"], "isWin": false },
+          { "symbols": ["S", "L1", "M1"], "isWin": false },
+          { "symbols": ["L2", "M1", "H2"], "isWin": false }
+        ]
+      }
+    },
+    
+    "FREE": {
+      "_comment": "FREE 狀態的 Outcome Table",
+      "_comment_FREE": "重要：FREE Table 中不得包含 type: FEATURE 的 Outcome（v1.0 不支援 Re-trigger）",
+      "outcomes": [
+        {
+          "id": "FREE_MEGA_WIN",
+          "weight": 2,
+          "payoutMultiplier": 150,
+          "type": "WIN"
+        },
+        {
+          "id": "FREE_BIG_WIN",
+          "weight": 8,
+          "payoutMultiplier": 50,
+          "type": "WIN"
+        },
+        {
+          "id": "FREE_MEDIUM_WIN",
+          "weight": 30,
+          "payoutMultiplier": 15,
+          "type": "WIN"
+        },
+        {
+          "id": "FREE_SMALL_WIN",
+          "weight": 120,
+          "payoutMultiplier": 5,
+          "type": "WIN"
+        },
+        {
+          "id": "FREE_NEAR_MISS",
+          "weight": 50,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        },
+        {
+          "id": "FREE_LOSS",
+          "weight": 290,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        }
+      ],
+      "patterns": {
+        "FREE_MEGA_WIN": [
+          { "symbols": ["H1", "H1", "H1"], "isWin": true },
+          { "symbols": ["W", "W", "W"], "isWin": true },
+          { "symbols": ["H2", "H2", "H2"], "isWin": true }
+        ],
+        "FREE_BIG_WIN": [
+          { "symbols": ["H1", "H1", "W"], "isWin": true },
+          { "symbols": ["H2", "H2", "W"], "isWin": true },
+          { "symbols": ["H1", "W", "H1"], "isWin": true }
+        ],
+        "FREE_MEDIUM_WIN": [
+          { "symbols": ["M1", "M1", "M1"], "isWin": true },
+          { "symbols": ["M2", "M2", "M2"], "isWin": true },
+          { "symbols": ["H1", "M1", "M1"], "isWin": true }
+        ],
+        "FREE_SMALL_WIN": [
+          { "symbols": ["L1", "L1", "L1"], "isWin": true },
+          { "symbols": ["L2", "L2", "L2"], "isWin": true },
+          { "symbols": ["M1", "L1", "L1"], "isWin": true }
+        ],
+        "FREE_NEAR_MISS": [
+          { "symbols": ["H1", "H1", "L1"], "isWin": false },
+          { "symbols": ["W", "W", "L2"], "isWin": false },
+          { "symbols": ["M1", "M1", "L1"], "isWin": false }
+        ],
+        "FREE_LOSS": [
+          { "symbols": ["L1", "H1", "M1"], "isWin": false },
+          { "symbols": ["M2", "L1", "L2"], "isWin": false },
+          { "symbols": ["L2", "M1", "H2"], "isWin": false }
+        ]
+      }
+    }
+  },
+  
+  "_important_notes": [
+    "1. 每個 Outcome ID 必須在 patterns 中有對應定義",
+    "2. 每個 Outcome Table 的總權重必須 > 0",
+    "3. FEATURE 類型的 Outcome 只能出現在 BASE Table 中",
+    "4. FREE Table 中不得包含 FEATURE 類型的 Outcome",
+    "5. type: WIN 的 Outcome 建議使用 isWin: true 的 Pattern（否則會產生警告）",
+    "6. 所有數值設定一律讀取 JSON 檔案，不支援命令列參數覆蓋（避免衝突）"
+  ]
+}
+
