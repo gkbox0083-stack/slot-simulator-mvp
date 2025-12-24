@@ -190,6 +190,23 @@ function validateConfig(configPath) {
 
   // v1.2: 移除舊的 patterns 檢查（已改用 winConfig）
 
+  // ========================================================================
+  // v1.3: [WARNING] 檢查 visualConfig 結構（可選）
+  // ========================================================================
+  if (config.visualConfig) {
+    if (typeof config.visualConfig.enabled !== 'boolean' && config.visualConfig.enabled !== undefined) {
+      result.addWarning('visualConfig.enabled 必須為布林值，將使用預設值 true');
+    }
+    if (config.visualConfig.safeFiller && typeof config.visualConfig.safeFiller !== 'string') {
+      result.addWarning('visualConfig.safeFiller 必須為字串，將使用預設值 "L1"');
+    }
+    if (config.visualConfig.maxRetries !== undefined) {
+      if (typeof config.visualConfig.maxRetries !== 'number' || config.visualConfig.maxRetries < 1) {
+        result.addWarning('visualConfig.maxRetries 必須為正整數，將使用預設值 10');
+      }
+    }
+  }
+
   return result;
 }
 

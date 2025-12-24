@@ -1,7 +1,7 @@
 {
   "meta": {
-    "version": "v1.2.0",
-    "description": "Slot Game v1.2 - Pattern Resolver Layer"
+    "version": "v1.3.0",
+    "description": "Slot Game v1.3 - Visual Constraint Layer"
   },
   "betConfig": {
     "baseBet": 1,
@@ -9,6 +9,11 @@
   },
   "featureConfig": {
     "freeSpinCount": 10
+  },
+  "visualConfig": {
+    "enabled": true,
+    "safeFiller": "L1",
+    "maxRetries": 10
   },
   "symbols": [
     { "id": "H1", "name": "High1", "type": "HIGH" },

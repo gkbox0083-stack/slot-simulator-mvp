@@ -29,7 +29,8 @@ function parseArgs() {
     csv: {
       enabled: false,
       path: null
-    }
+    },
+    noVisual: false  // v1.3: 支援 --no-visual 參數
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -46,6 +47,7 @@ Slot Math Simulator v1.1
   -n, --spins <number>    設定模擬 Base Spin 次數 (預設 10000)
   -f, --file <path>       指定 JSON 設定檔路徑 (預設 logic/design.json)
   --csv <filename>        匯出逐 Spin 詳細記錄到 CSV 檔案
+  --no-visual             關閉 Visual Constraint Layer (v1.3)
   -h, --help              顯示幫助訊息
 
 範例:
@@ -83,6 +85,9 @@ Slot Math Simulator v1.1
       options.csv.enabled = true;
       options.csv.path = args[i + 1];
       i++;
+    } else if (arg === '--no-visual') {
+      // v1.3: 關閉 Visual Constraint Layer
+      options.noVisual = true;
     }
   }
 
@@ -125,13 +130,26 @@ function main() {
     const configData = fs.readFileSync(configPath, 'utf8');
     const config = JSON.parse(configData);
 
+    // v1.3: 如果指定 --no-visual，覆蓋 visualConfig.enabled
+    if (options.noVisual) {
+      if (!config.visualConfig) {
+        config.visualConfig = {};
+      }
+      config.visualConfig.enabled = false;
+      console.log('⚠️  Visual Constraint Layer 已關閉 (--no-visual)');
+      console.log('');
+    }
+
     console.log('✅ 設定檔驗證通過');
     console.log('');
     console.log('🚀 開始模擬...');
     console.log('');
 
+    // v1.3: 如果修改了 config（如 --no-visual），傳遞修改後的 config
+    const overrideConfig = options.noVisual ? config : null;
+    
     // 執行模擬（不傳入 customBet，使用 JSON 中的 baseBet；不輸出，使用 reporter；啟用 CSV）
-    const simulationData = simulate(configPath, options.spins, null, true, options.csv.enabled);
+    const simulationData = simulate(configPath, options.spins, null, true, options.csv.enabled, overrideConfig);
 
     // 使用 reporter 輸出優化後的報表
     printReport(

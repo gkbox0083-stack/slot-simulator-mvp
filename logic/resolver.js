@@ -1,8 +1,10 @@
 const { RNG } = require('./rng');  // v1.2.1: 從獨立模組導入 RNG（解決循環依賴）
+const { VisualConstraintEngine } = require('./visualConstraint');  // v1.3: Visual Constraint Layer
 
 /**
  * Pattern Resolver - 將 Outcome 轉換為 Grid
  * v1.2: Pattern Resolver Layer
+ * v1.3: 整合 Visual Constraint Layer
  * 
  * 核心原則：
  * - 只做視覺映射，不計算賠率、不判斷中獎、不做數學運算
@@ -11,10 +13,16 @@ const { RNG } = require('./rng');  // v1.2.1: 從獨立模組導入 RNG（解決
  * - winLine 只有一條（v1.2 保證單線模式）
  */
 class PatternResolver {
-  constructor(gameRule, symbols, rng) {
+  constructor(gameRule, symbols, rng, visualConfig = null) {
     this.gameRule = gameRule;
     this.symbols = symbols;  // 引用自 design.json 的 symbols 陣列
     this.rng = rng;
+    
+    // v1.3: 初始化 Visual Constraint Engine（如果啟用）
+    this.visualEngine = null;
+    if (visualConfig && visualConfig.enabled !== false) {
+      this.visualEngine = new VisualConstraintEngine(gameRule, symbols, visualConfig);
+    }
     
     // 驗證 symbols 結構（必須包含 type 欄位）
     if (!symbols || !Array.isArray(symbols)) {
@@ -48,6 +56,7 @@ class PatternResolver {
   /**
    * 主要介面：解析 Outcome 並生成盤面
    * @param {Object} outcome - Outcome 物件
+   * @param {Object} context - v1.3: 可選的 context（包含 visualSeed 或 spinIndex）
    * @returns {Object} { grid: Array<Array<string>>, winLine: number|null }
    * 
    * winLine 定義：
@@ -57,7 +66,7 @@ class PatternResolver {
    * - number：表示主要中獎線的索引
    * - v1.2 保證：最多只有一條中獎線（單線模式）
    */
-  resolve(outcome) {
+  resolve(outcome, context = null) {
     // 驗證 matchCount 邊界
     if (outcome.type === 'WIN' && outcome.winConfig) {
       const matchCount = outcome.winConfig.matchCount;
@@ -71,13 +80,27 @@ class PatternResolver {
       }
     }
 
+    // v1.2: 生成基礎 grid
+    let patternResult;
     if (outcome.type === 'WIN') {
-      return this._resolveWin(outcome);
+      patternResult = this._resolveWin(outcome);
     } else if (outcome.type === 'LOSS' || outcome.type === 'FEATURE') {
-      return this._resolveLoss(outcome);
+      patternResult = this._resolveLoss(outcome);
     } else {
       throw new Error(`Unknown outcome type: ${outcome.type}`);
     }
+
+    // v1.3: 應用 Visual Constraint（如果啟用）
+    if (this.visualEngine && context) {
+      patternResult.grid = this.visualEngine.applyConstraints(
+        patternResult.grid,
+        outcome,
+        patternResult.winLine,
+        context
+      );
+    }
+
+    return patternResult;
   }
 
   /**

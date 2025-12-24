@@ -121,17 +121,22 @@ function calculateGapMetrics(gaps) {
  * @param {number} customBet - 自訂下注金額（可選，預設使用 betConfig.baseBet）
  * @returns {SimulationResult} 模擬結果物件
  */
-function simulate(configPath, targetBaseSpins = 10000, customBet = null, customReporter = undefined, csvEnabled = false) {
+function simulate(configPath, targetBaseSpins = 10000, customBet = null, customReporter = undefined, csvEnabled = false, overrideConfig = null) {
   // ========================================================================
   // 1. 讀取並驗證設定檔（Read-Only）
+  // v1.3: 支援 overrideConfig（用於 --no-visual 等 CLI 參數）
   // ========================================================================
   let config;
-  try {
-    const configData = fs.readFileSync(configPath, 'utf8');
-    config = JSON.parse(configData);
-  } catch (error) {
-    console.error('讀取設定檔失敗:', error.message);
-    process.exit(1);
+  if (overrideConfig) {
+    config = overrideConfig;
+  } else {
+    try {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      config = JSON.parse(configData);
+    } catch (error) {
+      console.error('讀取設定檔失敗:', error.message);
+      process.exit(1);
+    }
   }
 
   // 驗證設定檔結構
@@ -157,13 +162,16 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
 
   // ========================================================================
   // v1.2: 初始化 Pattern Resolver (僅 BASE 狀態)
+  // v1.3: 整合 Visual Constraint Layer
   // ========================================================================
   let baseResolver = null;
   if (config.gameRules && config.gameRules.BASE) {
+    const visualConfig = config.visualConfig || { enabled: true, safeFiller: 'L1', maxRetries: 10 };
     baseResolver = new PatternResolver(
       config.gameRules.BASE,
       config.symbols,
-      rng
+      rng,
+      visualConfig  // v1.3: 傳遞 visualConfig
     );
   }
 
@@ -271,10 +279,16 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
 
     // --------------------------------------------------------------------
     // 6.3 Pattern Resolution (v1.2: 使用 Pattern Resolver)
+    // v1.3: 傳遞 context 給 Visual Constraint Layer
     // --------------------------------------------------------------------
     let patternResult;
     if (currentState === STATE.BASE && baseResolver) {
-      patternResult = baseResolver.resolve(outcome);
+      // v1.3: 建立 context（包含 spinIndex 用於 Visual RNG）
+      const context = {
+        spinIndex: globalSpinIndex,  // 使用 globalSpinIndex 作為 visualSeed 來源
+        visualSeed: globalSpinIndex * 7919 + 1000000  // 推導 visualSeed（與 Math RNG 隔離）
+      };
+      patternResult = baseResolver.resolve(outcome, context);
     } else {
       // Free Game 暫時使用 placeholder（v1.2 MVP 不實作 Free Game Resolver）
       patternResult = { grid: [], winLine: null };

@@ -1,4 +1,4 @@
-# Slot Math Simulator v1.2
+# Slot Math Simulator v1.3
 
 ## ⚠️ 重要聲明
 
@@ -15,6 +15,7 @@
 - **Bet-centric 模擬**: 模擬玩家實際下注的 Base Game Spins，Free Game 為延伸結果
 - **Gap Tracking（體感指標）**: 計算 BASE Outcome 的出現間隔（平均、中位數、最大值）
 - **Raw Data Export（CSV）**: 匯出逐 Spin 的詳細記錄，支援後續分析
+- **Visual Constraint Layer（v1.3）**: 改善盤面視覺呈現，消除整列重複，支援 Near Miss 視覺特徵
 
 ### 驗證機制
 
@@ -58,6 +59,9 @@ node logic/cli.js -n 100000 -f my-config.json
 # 匯出 CSV 資料
 node logic/cli.js -n 10000 --csv result.csv
 
+# 關閉 Visual Constraint Layer（行為等同 v1.2）
+node logic/cli.js -n 10000 --no-visual
+
 # 完整範例
 node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
 ```
@@ -76,6 +80,11 @@ node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
   - 自動建立目錄（如果不存在）
   - 支援相對路徑或絕對路徑
   - 範例: `--csv result.csv` 或 `--csv output/data.csv`
+
+- `--no-visual`: 關閉 Visual Constraint Layer（v1.3 新增）
+  - 關閉時行為與 v1.2 bitwise identical
+  - 適用於驗證數學正確性或需要重現 v1.2 結果時
+  - 範例: `--no-visual`
 
 - `-h, --help`: 顯示幫助訊息
 
@@ -112,15 +121,26 @@ node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
   "featureConfig": {
     "freeSpinCount": 10
   },
+  "visualConfig": {
+    "enabled": true,
+    "safeFiller": "L1",
+    "maxRetries": 10
+  },
   "symbols": [...],
+  "gameRules": {
+    "BASE": {
+      "grid": { "rows": 3, "cols": 5 },
+      "winCondition": "payline",
+      "paylines": [...]
+    },
+    "FREE": null
+  },
   "outcomeTables": {
     "BASE": {
-      "outcomes": [...],
-      "patterns": {...}
+      "outcomes": [...]
     },
     "FREE": {
-      "outcomes": [...],
-      "patterns": {...}
+      "outcomes": [...]
     }
   }
 }
@@ -135,24 +155,39 @@ node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
 #### `featureConfig`
 - `freeSpinCount`: Free Game 觸發時的免費 Spin 次數（數字，必須 > 0）
 
+#### `visualConfig` (v1.3)
+- `enabled`: 是否啟用 Visual Constraint Layer（布林值，預設 true）
+- `safeFiller`: 安全填充符號 ID（字串，預設 "L1"）
+- `maxRetries`: 視覺約束重試次數（數字，預設 10）
+
+#### `gameRules` (v1.2+)
+- `BASE`: Base Game 規則
+  - `grid`: Grid 尺寸定義
+    - `rows`: 行數（數字）
+    - `cols`: 列數（數字）
+  - `winCondition`: 中獎條件（目前僅支援 "payline"）
+  - `paylines`: Payline 陣列（每個 payline 為 [row, col] 座標陣列）
+- `FREE`: Free Game 規則（v1.3 MVP 為 null）
+
 #### `outcomeTables.BASE` / `outcomeTables.FREE`
 - `outcomes`: Outcome 陣列
   - `id`: Outcome 識別碼（字串，必須唯一）
   - `weight`: 權重（數字，必須 >= 0）
   - `payoutMultiplier`: 賠率倍數（數字）
   - `type`: 類型（"WIN" | "LOSS" | "FEATURE"）
-- `patterns`: Pattern 物件
-  - 鍵值為 Outcome ID
-  - 值為 Pattern 陣列
-    - `symbols`: 符號陣列（字串陣列）
-    - `isWin`: 是否為中獎 Pattern（布林值）
+  - `winConfig` (WIN 類型必填): 中獎配置
+    - `symbolId`: 中獎符號 ID（字串）
+    - `matchCount`: 連線數量（數字，必須 >= 2 且 <= grid.cols）
+    - `allowWild`: 是否允許 Wild（布林值）
 
 ### 重要約束
 
-1. **Outcome ID 必須在 patterns 中有對應定義**
-2. **每個 Outcome Table 的總權重必須 > 0**
-3. **FEATURE 類型的 Outcome 只能出現在 BASE Table 中**
-4. **FREE Table 中不得包含 FEATURE 類型的 Outcome**（v1.0 不支援 Re-trigger）
+1. **每個 Outcome Table 的總權重必須 > 0**
+2. **FEATURE 類型的 Outcome 只能出現在 BASE Table 中**
+3. **FREE Table 中不得包含 FEATURE 類型的 Outcome**（v1.0 不支援 Re-trigger）
+4. **WIN 類型的 Outcome 必須包含 winConfig**（v1.2+）
+5. **winConfig.matchCount 不得超過 grid.cols**（v1.2+）
+6. **symbols 陣列中的每個元素必須包含 id 和 type 欄位**（v1.2+）
 
 ### 範本檔案
 
@@ -208,14 +243,33 @@ A: CSV 檔案包含以下欄位：
 - `winAmount`: 該轉贏分
 - `triggeredFeatureId`: 如果是 FEATURE 類型，記錄 outcomeId；否則為空字串
 
+### Q: Visual Constraint Layer 是什麼？會影響數學結果嗎？
+
+A: Visual Constraint Layer（v1.3）是純視覺優化層，**完全不會影響數學結果**：
+- 使用獨立的 Visual RNG（與 Math RNG 完全隔離）
+- 僅改善盤面視覺呈現（消除整列重複、Near Miss 視覺特徵）
+- 不修改 Outcome、不影響 RTP、不改變任何數學行為
+- 固定 seed 下，v1.2 與 v1.3 的 Total Win Amount 完全相同
+- 可使用 `--no-visual` 關閉，行為與 v1.2 bitwise identical
+
+### Q: 什麼時候應該使用 `--no-visual`？
+
+A: 建議在以下情況使用 `--no-visual`：
+- 需要驗證數學正確性（確保與 v1.2 結果一致）
+- 需要重現 v1.2 的結果
+- 僅關注數學數據，不關心視覺呈現
+- 進行回歸測試時
+
 ## 技術細節
 
 ### 核心引擎
 
 - **檔案**: `logic/simulate.js`
-- **版本**: Core Spec v1.2
+- **版本**: Core Spec v1.3
 - **原則**: Outcome-based, FSM, Bet-centric
 - **v1.1 新增**: Gap Tracking、Spin Logging (CSV)
+- **v1.2 新增**: Pattern Resolver Layer（動態 Grid 生成）
+- **v1.3 新增**: Visual Constraint Layer（視覺優化）
 
 ### 驗證器
 
@@ -227,6 +281,16 @@ A: CSV 檔案包含以下欄位：
 - **檔案**: `logic/reporter.js`
 - **功能**: 格式化輸出、專業報表生成
 
+### Visual Constraint Layer
+
+- **檔案**: `logic/visualConstraint.js`
+- **版本**: v1.3
+- **功能**: 視覺約束處理，改善盤面呈現
+  - 消除整列重複
+  - Near Miss 視覺特徵
+  - 符號分布自然度改善
+  - 完全隔離的 Visual RNG（不影響數學結果）
+
 ## 授權
 
 本工具為內部開發工具，僅供內部使用。
@@ -234,6 +298,13 @@ A: CSV 檔案包含以下欄位：
 ## 版本歷史
 
 詳細版本歷史請參考 [SPEC-VERSIONS.md](SPEC-VERSIONS.md)
+
+### v1.3 - Visual Constraint Layer
+- ✅ 實現視覺約束處理
+- ✅ 消除整列重複，改善符號分布自然度
+- ✅ Near Miss 視覺特徵（前 N-1 格高價值符號，第 N 格低價值符號）
+- ✅ 完全隔離的 Visual RNG（不影響數學結果）
+- ✅ 支援 `--no-visual` 參數（關閉時行為與 v1.2 bitwise identical）
 
 ### v1.2 - Pattern Resolver Layer
 - ✅ 實現 Outcome → Pattern 解耦
