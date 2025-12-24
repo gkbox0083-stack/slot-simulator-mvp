@@ -84,13 +84,49 @@ function validateConfig(configPath) {
   }
 
   // ========================================================================
-  // [ERROR] Integrity: 檢查每個 Outcome ID 是否在 patterns 中有定義
+  // v1.2: [ERROR] 檢查 gameRules 結構
+  // ========================================================================
+  if (!config.gameRules) {
+    result.addError('缺少必要欄位: gameRules');
+  } else {
+    if (!config.gameRules.BASE) {
+      result.addError('缺少必要欄位: gameRules.BASE');
+    } else {
+      const baseGameRule = config.gameRules.BASE;
+      
+      // 檢查 grid 定義
+      if (!baseGameRule.grid || typeof baseGameRule.grid.rows !== 'number' || typeof baseGameRule.grid.cols !== 'number') {
+        result.addError('gameRules.BASE.grid 必須包含 rows 和 cols（數字）');
+      }
+      
+      // 檢查 paylines 定義
+      if (!Array.isArray(baseGameRule.paylines) || baseGameRule.paylines.length === 0) {
+        result.addError('gameRules.BASE.paylines 必須為非空陣列');
+      } else {
+        // 驗證 paylines 格式
+        baseGameRule.paylines.forEach((payline, index) => {
+          if (!Array.isArray(payline)) {
+            result.addError(`gameRules.BASE.paylines[${index}] 必須為陣列`);
+          } else {
+            payline.forEach((pos, posIndex) => {
+              if (!Array.isArray(pos) || pos.length !== 2) {
+                result.addError(`gameRules.BASE.paylines[${index}][${posIndex}] 必須為 [row, col] 格式`);
+              }
+            });
+          }
+        });
+      }
+    }
+  }
+
+  // ========================================================================
+  // v1.2: [ERROR] 檢查 WIN 類型的 Outcome 是否包含 winConfig
   // ========================================================================
   const states = ['BASE', 'FREE'];
   for (const state of states) {
     const outcomeTable = config.outcomeTables[state];
-    if (!outcomeTable.outcomes || !outcomeTable.patterns) {
-      result.addError(`${state} 狀態缺少 outcomes 或 patterns`);
+    if (!outcomeTable || !outcomeTable.outcomes) {
+      result.addError(`${state} 狀態缺少 outcomes`);
       continue;
     }
 
@@ -100,12 +136,34 @@ function validateConfig(configPath) {
         continue;
       }
 
-      if (!outcomeTable.patterns[outcome.id]) {
-        result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 在 patterns 中沒有對應的定義`);
-      } else if (!Array.isArray(outcomeTable.patterns[outcome.id])) {
-        result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 patterns 必須為陣列`);
-      } else if (outcomeTable.patterns[outcome.id].length === 0) {
-        result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 patterns 陣列為空`);
+      // 檢查 WIN 類型必須包含 winConfig
+      if (outcome.type === 'WIN') {
+        if (!outcome.winConfig) {
+          result.addError(`${state} 狀態中的 WIN 類型 Outcome "${outcome.id}" 缺少 winConfig`);
+        } else {
+          // 檢查 winConfig 結構
+          if (!outcome.winConfig.symbolId) {
+            result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winConfig 缺少 symbolId`);
+          }
+          if (typeof outcome.winConfig.matchCount !== 'number') {
+            result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winConfig.matchCount 必須為數字`);
+          } else {
+            // 檢查 matchCount 是否超過盤面寬度
+            if (config.gameRules && config.gameRules.BASE && config.gameRules.BASE.grid) {
+              const maxCols = config.gameRules.BASE.grid.cols;
+              if (outcome.winConfig.matchCount > maxCols) {
+                result.addError(
+                  `${state} 狀態中的 Outcome "${outcome.id}" 的 matchCount (${outcome.winConfig.matchCount}) 超過盤面寬度 (${maxCols})`
+                );
+              }
+              if (outcome.winConfig.matchCount < 2) {
+                result.addWarning(
+                  `${state} 狀態中的 Outcome "${outcome.id}" 的 matchCount (${outcome.winConfig.matchCount}) 小於 2，可能不合理`
+                );
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -130,27 +188,7 @@ function validateConfig(configPath) {
     }
   }
 
-  // ========================================================================
-  // [WARNING] Logic Check: 檢查 type: WIN 的 Outcome，其 Pattern 是否包含 isWin: true
-  // ========================================================================
-  for (const state of states) {
-    const outcomeTable = config.outcomeTables[state];
-    if (!outcomeTable.outcomes || !outcomeTable.patterns) continue;
-
-    for (const outcome of outcomeTable.outcomes) {
-      if (outcome.type === 'WIN') {
-        const patterns = outcomeTable.patterns[outcome.id];
-        if (patterns && Array.isArray(patterns)) {
-          const hasWinPattern = patterns.some(p => p.isWin === true);
-          if (!hasWinPattern) {
-            result.addWarning(
-              `${state} 狀態中的 Outcome "${outcome.id}" 類型為 WIN，但所有 Pattern 的 isWin 皆為 false。可能為 Near Miss 設定。`
-            );
-          }
-        }
-      }
-    }
-  }
+  // v1.2: 移除舊的 patterns 檢查（已改用 winConfig）
 
   return result;
 }

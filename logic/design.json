@@ -1,7 +1,7 @@
 {
   "meta": {
-    "version": "v0.2.0",
-    "description": "Slot Game MVP v0.2 - Outcome-based Design with Free Game Feature"
+    "version": "v1.2.0",
+    "description": "Slot Game v1.2 - Pattern Resolver Layer"
   },
   "betConfig": {
     "baseBet": 1,
@@ -20,6 +20,23 @@
     { "id": "W", "name": "Wild", "type": "WILD" },
     { "id": "S", "name": "Scatter", "type": "SCATTER" }
   ],
+  "gameRules": {
+    "BASE": {
+      "grid": {
+        "rows": 3,
+        "cols": 5
+      },
+      "winCondition": "payline",
+      "paylines": [
+        [[0,0], [0,1], [0,2], [0,3], [0,4]],
+        [[1,0], [1,1], [1,2], [1,3], [1,4]],
+        [[2,0], [2,1], [2,2], [2,3], [2,4]],
+        [[0,0], [1,1], [2,2], [1,3], [0,4]],
+        [[2,0], [1,1], [0,2], [1,3], [2,4]]
+      ]
+    },
+    "FREE": null
+  },
   "outcomeTables": {
     "BASE": {
       "outcomes": [
@@ -27,25 +44,45 @@
           "id": "MEGA_WIN",
           "weight": 1,
           "payoutMultiplier": 100,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 5,
+            "allowWild": false
+          }
         },
         {
           "id": "BIG_WIN",
           "weight": 4,
           "payoutMultiplier": 20,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 4,
+            "allowWild": false
+          }
         },
         {
           "id": "MEDIUM_WIN",
           "weight": 30,
           "payoutMultiplier": 5,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 3,
+            "allowWild": false
+          }
         },
         {
           "id": "SMALL_WIN",
           "weight": 140,
           "payoutMultiplier": 2,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "L1",
+            "matchCount": 3,
+            "allowWild": false
+          }
         },
         {
           "id": "FREE_GAME_TRIGGER",
@@ -71,45 +108,7 @@
           "payoutMultiplier": 0,
           "type": "LOSS"
         }
-      ],
-      "patterns": {
-        "MEGA_WIN": [
-          { "symbols": ["H1", "H1", "H1"], "isWin": true },
-          { "symbols": ["W", "W", "W"], "isWin": true }
-        ],
-        "BIG_WIN": [
-          { "symbols": ["H2", "H2", "H2"], "isWin": true },
-          { "symbols": ["H1", "H1", "W"], "isWin": true }
-        ],
-        "MEDIUM_WIN": [
-          { "symbols": ["M1", "M1", "M1"], "isWin": true },
-          { "symbols": ["M2", "M2", "M2"], "isWin": true }
-        ],
-        "SMALL_WIN": [
-          { "symbols": ["L1", "L1", "L1"], "isWin": true },
-          { "symbols": ["L2", "L2", "L2"], "isWin": true },
-          { "symbols": ["L1", "L1", "W"], "isWin": true }
-        ],
-        "FREE_GAME_TRIGGER": [
-          { "symbols": ["S", "S", "S"], "isWin": false },
-          { "symbols": ["S", "S", "H1"], "isWin": false },
-          { "symbols": ["S", "H1", "S"], "isWin": false }
-        ],
-        "NEAR_MISS_1": [
-          { "symbols": ["H1", "H1", "L1"], "isWin": false },
-          { "symbols": ["W", "W", "L2"], "isWin": false }
-        ],
-        "NEAR_MISS_2": [
-          { "symbols": ["M1", "M1", "L1"], "isWin": false },
-          { "symbols": ["L1", "L1", "M1"], "isWin": false }
-        ],
-        "LOSS": [
-          { "symbols": ["L1", "H1", "M1"], "isWin": false },
-          { "symbols": ["M2", "L1", "L2"], "isWin": false },
-          { "symbols": ["S", "L1", "M1"], "isWin": false },
-          { "symbols": ["L2", "M1", "H2"], "isWin": false }
-        ]
-      }
+      ]
     },
     "FREE": {
       "outcomes": [
@@ -117,25 +116,45 @@
           "id": "FREE_MEGA_WIN",
           "weight": 2,
           "payoutMultiplier": 150,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 5,
+            "allowWild": false
+          }
         },
         {
           "id": "FREE_BIG_WIN",
           "weight": 8,
           "payoutMultiplier": 50,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 4,
+            "allowWild": false
+          }
         },
         {
           "id": "FREE_MEDIUM_WIN",
           "weight": 30,
           "payoutMultiplier": 15,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 3,
+            "allowWild": false
+          }
         },
         {
           "id": "FREE_SMALL_WIN",
           "weight": 120,
           "payoutMultiplier": 5,
-          "type": "WIN"
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "L1",
+            "matchCount": 3,
+            "allowWild": false
+          }
         },
         {
           "id": "FREE_NEAR_MISS",
@@ -149,39 +168,7 @@
           "payoutMultiplier": 0,
           "type": "LOSS"
         }
-      ],
-      "patterns": {
-        "FREE_MEGA_WIN": [
-          { "symbols": ["H1", "H1", "H1"], "isWin": true },
-          { "symbols": ["W", "W", "W"], "isWin": true },
-          { "symbols": ["H2", "H2", "H2"], "isWin": true }
-        ],
-        "FREE_BIG_WIN": [
-          { "symbols": ["H1", "H1", "W"], "isWin": true },
-          { "symbols": ["H2", "H2", "W"], "isWin": true },
-          { "symbols": ["H1", "W", "H1"], "isWin": true }
-        ],
-        "FREE_MEDIUM_WIN": [
-          { "symbols": ["M1", "M1", "M1"], "isWin": true },
-          { "symbols": ["M2", "M2", "M2"], "isWin": true },
-          { "symbols": ["H1", "M1", "M1"], "isWin": true }
-        ],
-        "FREE_SMALL_WIN": [
-          { "symbols": ["L1", "L1", "L1"], "isWin": true },
-          { "symbols": ["L2", "L2", "L2"], "isWin": true },
-          { "symbols": ["M1", "L1", "L1"], "isWin": true }
-        ],
-        "FREE_NEAR_MISS": [
-          { "symbols": ["H1", "H1", "L1"], "isWin": false },
-          { "symbols": ["W", "W", "L2"], "isWin": false },
-          { "symbols": ["M1", "M1", "L1"], "isWin": false }
-        ],
-        "FREE_LOSS": [
-          { "symbols": ["L1", "H1", "M1"], "isWin": false },
-          { "symbols": ["M2", "L1", "L2"], "isWin": false },
-          { "symbols": ["L2", "M1", "H2"], "isWin": false }
-        ]
-      }
+      ]
     }
   }
 }

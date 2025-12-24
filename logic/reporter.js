@@ -1,4 +1,28 @@
-// formatReel 函數（從 simulate.js 複製，避免依賴）
+/**
+ * v1.2: 格式化 Grid 顯示（支援 5x3 格式）
+ * 
+ * ⚠️ 重要：Reporter 僅負責顯示，不得重新判斷中獎與否
+ * - 不檢查連線
+ * - 不計算賠率
+ * - 不驗證盤面合法性
+ * - 僅將 grid 資料格式化為視覺輸出
+ */
+function formatGrid(grid) {
+  if (!grid || grid.length === 0) {
+    return '[Empty Grid]';
+  }
+  
+  // 5x3 格式範例：
+  // [H1] [H1] [H1] [L1] [M2]
+  // [M1] [L2] [H2] [M1] [L1]
+  // [L1] [M2] [L1] [H1] [M1]
+  
+  return grid.map(row => 
+    row.map(sym => `[${sym}]`).join(' ')
+  ).join('\n');
+}
+
+// 保留 formatReel 以向後相容（用於舊格式）
 function formatReel(symbols) {
   return symbols.map(s => `[${s}]`).join('');
 }
@@ -25,7 +49,7 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
   // Header: 模擬參數
   // ========================================================================
   console.log('╔════════════════════════════════════════════════════════════════╗');
-  console.log('║           Slot Math Simulator MVP v1.0 - 模擬報表              ║');
+  console.log('║           Slot Math Simulator v1.2 - 模擬報表                 ║');
   console.log('╚════════════════════════════════════════════════════════════════╝');
   console.log('');
   console.log('📋 模擬參數');
@@ -209,11 +233,23 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
     console.log('📝 前 20 次模擬 Spin 詳細結果');
     console.log('─'.repeat(60));
     spinDetails.forEach((detail, index) => {
-      const reelDisplay = formatReel(detail.pattern.symbols);
+      // v1.2 Update: 使用 patternResult 而非 pattern
+      const gridDisplay = detail.patternResult 
+        ? formatGrid(detail.patternResult.grid) 
+        : '[No Grid Data]';
+
+      const winLineInfo = (detail.patternResult && detail.patternResult.winLine !== null)
+        ? ` | Win Line: ${detail.patternResult.winLine + 1}`
+        : '';
+
       const stateLabel = detail.state === 'BASE' ? 'BASE' : 'FREE';
-      const baseSpinLabel = detail.baseSpin !== null ? `[Base #${detail.baseSpin}]` : '[Free]';
+      const baseSpinLabel = detail.baseSpin !== null 
+        ? `[Base #${detail.baseSpin}]` 
+        : '[Free]';
       const outcomeInfo = `${detail.outcome.id} (${detail.outcome.type})`;
-      const winInfo = detail.winAmount > 0 ? `Win: ${detail.winAmount}` : 'Win: 0';
+      const winInfo = detail.winAmount > 0 
+        ? `Win: ${detail.winAmount}` 
+        : 'Win: 0';
       const freeSpinsInfo = detail.stateAfter === 'FREE' 
         ? ` | Free Spins: ${detail.freeSpinsRemaining}` 
         : '';
@@ -223,7 +259,11 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
             : ' <<< Back to Base')
         : '';
 
-      console.log(`  #${String(index + 1).padStart(2)} ${baseSpinLabel} [${stateLabel}]: ${reelDisplay} - ${outcomeInfo} - ${winInfo}${freeSpinsInfo}${transitionInfo}`);
+      // 輸出格式：Header → Grid → Info
+      console.log(`  #${String(index + 1).padStart(2)} ${baseSpinLabel} [${stateLabel}]:`);
+      console.log(`  ${gridDisplay.split('\n').join('\n  ')}`);
+      console.log(`  → ${outcomeInfo} - ${winInfo}${winLineInfo}${freeSpinsInfo}${transitionInfo}`);
+      console.log('');
     });
     console.log('');
   }

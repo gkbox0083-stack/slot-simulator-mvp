@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const { PatternResolver } = require('./resolver');
+const { RNG } = require('./rng');  // v1.2.1: 從獨立模組導入 RNG（解決循環依賴）
 
 // ============================================================================
 // Core Spec v1.0: State Constants
@@ -13,92 +15,6 @@ const STATE = {
   BASE: 'BASE',
   FREE: 'FREE'
 };
-
-// ============================================================================
-// Core Spec v1.0: Centralized RNG Module
-// ============================================================================
-
-/**
- * 集中化隨機數生成器（RNG）
- * 
- * 原則：所有隨機行為必須通過此模組，禁止在業務邏輯中直接使用 Math.random()
- * 
- * 未來可擴展支援 Seed Injection 以實現可重現性
- */
-class RNG {
-  constructor(seed = null) {
-    this.seed = seed;
-    // 未來可實作 Seeded RNG
-  }
-
-  /**
-   * 產生 0 ~ 1 之間的隨機數
-   * @returns {number} 0 ~ 1 之間的隨機數
-   */
-  random() {
-    // 目前使用 Math.random()，未來可替換為 Seeded RNG
-    return Math.random();
-  }
-
-  /**
-   * 產生 0 ~ max 之間的隨機整數
-   * @param {number} max - 最大值（不包含）
-   * @returns {number} 0 ~ max-1 之間的隨機整數
-   */
-  randomInt(max) {
-    return Math.floor(this.random() * max);
-  }
-
-  /**
-   * 從陣列中隨機選擇一個元素
-   * @param {Array} array - 陣列
-   * @returns {*} 隨機選中的元素
-   */
-  selectFromArray(array) {
-    if (!array || array.length === 0) {
-      throw new Error('Cannot select from empty array');
-    }
-    return array[this.randomInt(array.length)];
-  }
-
-  /**
-   * 加權隨機選擇：根據權重選擇一個 Outcome
-   * @param {Array} outcomes - Outcome 陣列（必須包含 weight 屬性）
-   * @returns {Object} 選中的 Outcome
-   */
-  weightedSelect(outcomes) {
-    if (!outcomes || outcomes.length === 0) {
-      throw new Error('Cannot select from empty outcomes array');
-    }
-
-    // 計算總權重
-    const totalWeight = outcomes.reduce((sum, outcome) => {
-      if (typeof outcome.weight !== 'number' || outcome.weight < 0) {
-        throw new Error(`Invalid weight for outcome: ${outcome.id || 'unknown'}`);
-      }
-      return sum + outcome.weight;
-    }, 0);
-
-    if (totalWeight === 0) {
-      throw new Error('Total weight is zero');
-    }
-
-    // 產生 0 ~ totalWeight 之間的隨機數
-    const random = this.random() * totalWeight;
-
-    // 累加權重，找到落點
-    let accumulatedWeight = 0;
-    for (const outcome of outcomes) {
-      accumulatedWeight += outcome.weight;
-      if (random < accumulatedWeight) {
-        return outcome;
-      }
-    }
-
-    // 理論上不會執行到這裡，但為了安全起見返回最後一個
-    return outcomes[outcomes.length - 1];
-  }
-}
 
 // ============================================================================
 // Core Spec v1.0: Simulation Result Structure
@@ -169,26 +85,7 @@ function selectOutcome(rng, outcomeTable, state) {
   return rng.weightedSelect(outcomeTable.outcomes);
 }
 
-/**
- * 選擇 Pattern（通過集中化 RNG）
- * @param {RNG} rng - 隨機數生成器
- * @param {Object} outcomeTable - Outcome Table（包含 patterns 物件）
- * @param {string} outcomeId - Outcome ID
- * @param {string} state - 當前狀態
- * @returns {Object} 選中的 Pattern
- */
-function selectPattern(rng, outcomeTable, outcomeId, state) {
-  if (!outcomeTable || !outcomeTable.patterns) {
-    throw new Error(`Invalid patterns table for state: ${state}`);
-  }
-
-  const patterns = outcomeTable.patterns[outcomeId];
-  if (!patterns || patterns.length === 0) {
-    throw new Error(`No patterns found for outcome: ${outcomeId} in state: ${state}`);
-  }
-
-  return rng.selectFromArray(patterns);
-}
+// v1.2: selectPattern 函式已移除，改用 PatternResolver
 
 /**
  * v1.1: 計算 Gap 統計指標
@@ -259,6 +156,18 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   const rng = new RNG();
 
   // ========================================================================
+  // v1.2: 初始化 Pattern Resolver (僅 BASE 狀態)
+  // ========================================================================
+  let baseResolver = null;
+  if (config.gameRules && config.gameRules.BASE) {
+    baseResolver = new PatternResolver(
+      config.gameRules.BASE,
+      config.symbols,
+      rng
+    );
+  }
+
+  // ========================================================================
   // 3. 初始化狀態機
   // ========================================================================
   let currentState = STATE.BASE;
@@ -321,7 +230,7 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   let baseHitCount = 0;  // 僅計算 Base Game 中 Win > 0 的次數
 
   console.log('='.repeat(60));
-  console.log('Slot Game Core Spec v1.1 - 模擬開始 (Analysis Depth Phase)');
+  console.log('Slot Game Core Spec v1.2 - 模擬開始 (Pattern Resolver Layer)');
   console.log('='.repeat(60));
   console.log(`模擬目標: ${targetBaseSpins} 次 Base Game Spins`);
   console.log(`Base Bet: ${baseBet} (來自 betConfig.baseBet)`);
@@ -361,9 +270,15 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     const outcome = selectOutcome(rng, outcomeTable, currentState);
 
     // --------------------------------------------------------------------
-    // 6.3 Pattern Resolution (via Centralized RNG)
+    // 6.3 Pattern Resolution (v1.2: 使用 Pattern Resolver)
     // --------------------------------------------------------------------
-    const pattern = selectPattern(rng, outcomeTable, outcome.id, currentState);
+    let patternResult;
+    if (currentState === STATE.BASE && baseResolver) {
+      patternResult = baseResolver.resolve(outcome);
+    } else {
+      // Free Game 暫時使用 placeholder（v1.2 MVP 不實作 Free Game Resolver）
+      patternResult = { grid: [], winLine: null };
+    }
 
     // --------------------------------------------------------------------
     // 6.4 State Transition Logic (P2: FSM)
@@ -469,7 +384,7 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         baseSpin: previousState === STATE.BASE ? baseSpins : null,
         state: previousState,
         outcome: outcome,
-        pattern: pattern,
+        patternResult: patternResult,  // v1.2: 改用 patternResult (包含 grid 和 winLine)
         winAmount: winAmount,
         stateAfter: currentState,
         freeSpinsRemaining: freeSpinsRemaining,
@@ -539,11 +454,11 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
  * 輸出模擬結果
  */
 function printSimulationResults(result, config, spinDetails, stateTransitions, targetBaseSpins, baseBet) {
+  // v1.2: 此函式已被 reporter.js 取代，保留僅作為備用
   // 輸出前 20 次的詳細結果
   console.log('前 20 次模擬 Spin 詳細結果:');
   console.log('-'.repeat(60));
   spinDetails.forEach((detail, index) => {
-    const reelDisplay = formatReel(detail.pattern.symbols);
     const stateLabel = detail.state === STATE.BASE ? 'BASE' : 'FREE';
     const baseSpinLabel = detail.baseSpin !== null ? `[Base #${detail.baseSpin}]` : '[Free]';
     const outcomeInfo = `${detail.outcome.id} (${detail.outcome.type})`;
@@ -556,12 +471,20 @@ function printSimulationResults(result, config, spinDetails, stateTransitions, t
           ? ' >>> Enter Free Game' 
           : ' <<< Back to Base')
       : '';
+    
+    // v1.2: 使用 grid 格式顯示
+    const gridDisplay = detail.patternResult && detail.patternResult.grid
+      ? formatGrid(detail.patternResult.grid)
+      : '[Empty Grid]';
+    const winLineInfo = detail.patternResult && detail.patternResult.winLine !== null
+      ? ` | Win Line: ${detail.patternResult.winLine + 1}`
+      : '';
 
-    console.log(
-      `#${index + 1} ${baseSpinLabel} [${stateLabel}]: ${reelDisplay} - ${outcomeInfo} - ${winInfo}${freeSpinsInfo}${transitionInfo}`
-    );
+    console.log(`#${index + 1} ${baseSpinLabel} [${stateLabel}]:`);
+    console.log(gridDisplay);
+    console.log(`  → ${outcomeInfo} - ${winInfo}${winLineInfo}${freeSpinsInfo}${transitionInfo}`);
+    console.log('');
   });
-  console.log('');
 
   // 輸出狀態切換摘要
   if (stateTransitions.length > 0) {
@@ -664,9 +587,9 @@ if (require.main === module) {
 
 module.exports = {
   simulate,
-  RNG,
   STATE,
   SimulationResult,
-  selectOutcome,
-  selectPattern
+  selectOutcome
+  // v1.2: selectPattern 已移除，改用 PatternResolver
+  // v1.2.1: RNG 已移至獨立模組 logic/rng.js
 };

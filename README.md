@@ -1,4 +1,4 @@
-# Slot Math Simulator MVP v1.0
+# Slot Math Simulator v1.2
 
 ## ⚠️ 重要聲明
 
@@ -13,6 +13,8 @@
 - **Outcome-based 模擬引擎**: 基於權重表進行結果抽取，不支援 Reel-strip 滾輪模擬
 - **Finite State Machine (FSM)**: 支援 BASE <-> FREE 狀態轉換
 - **Bet-centric 模擬**: 模擬玩家實際下注的 Base Game Spins，Free Game 為延伸結果
+- **Gap Tracking（體感指標）**: 計算 BASE Outcome 的出現間隔（平均、中位數、最大值）
+- **Raw Data Export（CSV）**: 匯出逐 Spin 的詳細記錄，支援後續分析
 
 ### 驗證機制
 
@@ -52,6 +54,12 @@ node logic/cli.js -f logic/design.json
 
 # 組合使用
 node logic/cli.js -n 100000 -f my-config.json
+
+# 匯出 CSV 資料
+node logic/cli.js -n 10000 --csv result.csv
+
+# 完整範例
+node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
 ```
 
 ### 命令列參數
@@ -63,6 +71,11 @@ node logic/cli.js -n 100000 -f my-config.json
 - `-f, --file <path>`: 指定 JSON 設定檔路徑（預設 `logic/design.json`）
   - 可使用相對路徑或絕對路徑
   - 範例: `-f logic/design.json`
+
+- `--csv <filename>`: 匯出逐 Spin 詳細記錄到 CSV 檔案（v1.1 新增）
+  - 自動建立目錄（如果不存在）
+  - 支援相對路徑或絕對路徑
+  - 範例: `--csv result.csv` 或 `--csv output/data.csv`
 
 - `-h, --help`: 顯示幫助訊息
 
@@ -76,8 +89,11 @@ node logic/cli.js -n 100000 -f my-config.json
 4. **Spin 統計**: Base/Free Game Spins、Total Bet、Total Win
 5. **Feature 統計**: Trigger Count、Avg Feature Win per Spin
 6. **Outcome 分布表**: BASE 與 FREE 狀態的詳細分布
-   - 欄位: Name, Outcome Type, Weight, Count, Freq%, RTP Contrib.%
+   - **BASE Game**: Name, Type, Weight, Count, Freq%, Avg Gap, Med Gap, Max Gap, RTP Contrib.%
+   - **FREE Game**: Name, Type, Weight, Count, Freq%, Avg Gap (N/A), Med Gap (N/A), Max Gap (N/A), RTP Contrib.%
+   - **Gap 統計說明**: 僅 BASE Outcome 計算 Gap（出現間隔），FREE Outcome 永遠顯示 N/A
 7. **前 20 次詳細結果**: 顯示前 20 次 Spin 的詳細資訊
+8. **CSV 匯出**（使用 `--csv` 時）: 匯出完整的逐 Spin 記錄
 
 ## JSON 結構說明
 
@@ -170,14 +186,36 @@ A: Validator 僅檢查結構錯誤，不驗證數學合理性。請透過模擬�
 2. Hit Rate 是否符合預期
 3. Outcome 分布是否接近理論機率
 4. Feature Trigger Rate 是否合理
+5. Gap 統計是否符合預期（平均間隔是否接近理論值）
+
+### Q: Gap 統計是什麼？如何解讀？
+
+A: Gap 統計是體感指標，用於評估 Outcome 的出現頻率：
+- **Avg Gap**: 平均間隔（平均每 N 轉出現一次）
+- **Med Gap**: 中位數間隔（50% 的情況間隔小於此值）
+- **Max Gap**: 最大間隔（最長等待時間）
+- **注意**: 僅 BASE Outcome 計算 Gap，FREE Outcome 永遠為 N/A
+- **範例**: 如果 MEGA_WIN 的 Avg Gap 為 1000，表示平均每 1000 次 Base Spin 出現一次
+
+### Q: CSV 匯出的資料格式是什麼？
+
+A: CSV 檔案包含以下欄位：
+- `globalSpinIndex`: 全域流水號（1, 2, 3...）
+- `baseSpinIndex`: Base Spin Index（FREE 狀態時為觸發該 Free Game 的 Base Spin）
+- `state`: "BASE" 或 "FREE"
+- `outcomeId`: Outcome ID
+- `type`: "WIN" / "LOSS" / "FEATURE"
+- `winAmount`: 該轉贏分
+- `triggeredFeatureId`: 如果是 FEATURE 類型，記錄 outcomeId；否則為空字串
 
 ## 技術細節
 
 ### 核心引擎
 
 - **檔案**: `logic/simulate.js`
-- **版本**: Core Spec v1.0.2
+- **版本**: Core Spec v1.2
 - **原則**: Outcome-based, FSM, Bet-centric
+- **v1.1 新增**: Gap Tracking、Spin Logging (CSV)
 
 ### 驗證器
 
@@ -195,7 +233,21 @@ A: Validator 僅檢查結構錯誤，不驗證數學合理性。請透過模擬�
 
 ## 版本歷史
 
-- **v1.0.2**: 修復 Off-by-one 錯誤（Free Game 次數計算）
-- **v1.0.1**: 修正 FSM 計數順序邏輯
-- **v1.0.0**: 初始版本（Base Game + Free Game）
+詳細版本歷史請參考 [SPEC-VERSIONS.md](SPEC-VERSIONS.md)
+
+### v1.2 - Pattern Resolver Layer
+- ✅ 實現 Outcome → Pattern 解耦
+- ✅ 支援動態 Grid 生成
+- ⚠️ 視覺呈現尚未優化
+
+詳細說明請參考：[v1.2 視覺語義聲明](./v1.2_VISUAL_SEMANTICS.md)
+
+- **v1.1** (2024-12-24): Analysis Depth Phase
+  - 新增 Gap Tracking（體感指標）
+  - 新增 CSV 匯出功能
+  - 優化報表輸出格式（加入 Gap 統計欄位）
+
+- **v1.0.2** (2024-12-24): 修復 Off-by-one 錯誤（Free Game 次數計算）
+- **v1.0.1** (2024-12-24): 修正 FSM 計數順序邏輯
+- **v1.0.0** (2024-12-24): 初始版本（Base Game + Free Game）
 

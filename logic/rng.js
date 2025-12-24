@@ -1,0 +1,85 @@
+/**
+ * 集中化隨機數生成器（RNG）
+ * v1.2.1: 獨立模組（解決循環依賴）
+ * 
+ * 原則：所有隨機行為必須通過此模組，禁止在業務邏輯中直接使用 Math.random()
+ * 
+ * 未來可擴展支援 Seed Injection 以實現可重現性
+ */
+class RNG {
+  constructor(seed = null) {
+    this.seed = seed;
+    // 未來可實作 Seeded RNG
+  }
+
+  /**
+   * 產生 0 ~ 1 之間的隨機數
+   * @returns {number} 0 ~ 1 之間的隨機數
+   */
+  random() {
+    // 目前使用 Math.random()，未來可替換為 Seeded RNG
+    return Math.random();
+  }
+
+  /**
+   * 產生 0 ~ max 之間的隨機整數
+   * @param {number} max - 最大值（不包含）
+   * @returns {number} 0 ~ max-1 之間的隨機整數
+   */
+  randomInt(max) {
+    return Math.floor(this.random() * max);
+  }
+
+  /**
+   * 從陣列中隨機選擇一個元素
+   * @param {Array} array - 陣列
+   * @returns {*} 隨機選中的元素
+   */
+  selectFromArray(array) {
+    if (!array || array.length === 0) {
+      throw new Error('Cannot select from empty array');
+    }
+    return array[this.randomInt(array.length)];
+  }
+
+  /**
+   * 加權隨機選擇：根據權重選擇一個 Outcome
+   * @param {Array} outcomes - Outcome 陣列（必須包含 weight 屬性）
+   * @returns {Object} 選中的 Outcome
+   */
+  weightedSelect(outcomes) {
+    if (!outcomes || outcomes.length === 0) {
+      throw new Error('Cannot select from empty outcomes array');
+    }
+
+    // 計算總權重
+    const totalWeight = outcomes.reduce((sum, outcome) => {
+      if (typeof outcome.weight !== 'number' || outcome.weight < 0) {
+        throw new Error(`Invalid weight for outcome: ${outcome.id || 'unknown'}`);
+      }
+      return sum + outcome.weight;
+    }, 0);
+
+    if (totalWeight === 0) {
+      throw new Error('Total weight is zero');
+    }
+
+    // 產生 0 ~ totalWeight 之間的隨機數
+    const random = this.random() * totalWeight;
+
+    // 累加權重，找到落點
+    let accumulatedWeight = 0;
+    for (const outcome of outcomes) {
+      accumulatedWeight += outcome.weight;
+      if (random < accumulatedWeight) {
+        return outcome;
+      }
+    }
+
+    // 理論上不會執行到這裡，但為了安全起見返回最後一個
+    return outcomes[outcomes.length - 1];
+  }
+}
+
+module.exports = { RNG };
+
