@@ -25,7 +25,11 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const options = {
     spins: 10000,
-    file: path.join(__dirname, 'design.json')
+    file: path.join(__dirname, 'design.json'),
+    csv: {
+      enabled: false,
+      path: null
+    }
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -33,7 +37,7 @@ function parseArgs() {
 
     if (arg === '-h' || arg === '--help') {
       console.log(`
-Slot Math Simulator MVP v1.0
+Slot Math Simulator v1.1
 
 使用方式:
   node cli.js [options]
@@ -41,11 +45,13 @@ Slot Math Simulator MVP v1.0
 選項:
   -n, --spins <number>    設定模擬 Base Spin 次數 (預設 10000)
   -f, --file <path>       指定 JSON 設定檔路徑 (預設 logic/design.json)
+  --csv <filename>        匯出逐 Spin 詳細記錄到 CSV 檔案
   -h, --help              顯示幫助訊息
 
 範例:
   node cli.js -n 50000 -f logic/design.json
-  node cli.js --spins 10000
+  node cli.js --spins 10000 --csv result.csv
+  node cli.js --csv output/data.csv
       `);
       process.exit(0);
     }
@@ -68,6 +74,14 @@ Slot Math Simulator MVP v1.0
         process.exit(1);
       }
       options.file = args[i + 1];
+      i++;
+    } else if (arg === '--csv') {
+      if (i + 1 >= args.length) {
+        console.error('❌ 錯誤: --csv 參數需要一個檔案路徑');
+        process.exit(1);
+      }
+      options.csv.enabled = true;
+      options.csv.path = args[i + 1];
       i++;
     }
   }
@@ -116,8 +130,8 @@ function main() {
     console.log('🚀 開始模擬...');
     console.log('');
 
-    // 執行模擬（不傳入 customBet，使用 JSON 中的 baseBet；不輸出，使用 reporter）
-    const simulationData = simulate(configPath, options.spins, null, true);
+    // 執行模擬（不傳入 customBet，使用 JSON 中的 baseBet；不輸出，使用 reporter；啟用 CSV）
+    const simulationData = simulate(configPath, options.spins, null, true, options.csv.enabled);
 
     // 使用 reporter 輸出優化後的報表
     printReport(
@@ -128,6 +142,21 @@ function main() {
       simulationData.targetBaseSpins,
       configPath
     );
+
+    // v1.1: CSV 匯出
+    if (options.csv.enabled && simulationData.spinLog) {
+      try {
+        exportCSV(simulationData.spinLog, options.csv.path);
+        const resolvedPath = path.isAbsolute(options.csv.path) 
+          ? options.csv.path 
+          : path.resolve(process.cwd(), options.csv.path);
+        console.log(`✅ CSV 匯出成功: ${resolvedPath}`);
+      } catch (error) {
+        console.error('❌ CSV 匯出失敗');
+        console.error(`   原因: ${error.message}`);
+        process.exit(1);
+      }
+    }
   } catch (error) {
     console.error('❌ 執行時發生錯誤:');
     console.error(`   ${error.message}`);
@@ -137,6 +166,55 @@ function main() {
     }
     process.exit(1);
   }
+}
+
+/**
+ * v1.1: 匯出 CSV
+ * @param {Array} spinLog - Spin 記錄陣列
+ * @param {string} csvPath - CSV 檔案路徑
+ */
+function exportCSV(spinLog, csvPath) {
+  // 1. 解析路徑（支援相對/絕對）
+  const resolvedPath = path.isAbsolute(csvPath) 
+    ? csvPath 
+    : path.resolve(process.cwd(), csvPath);
+  
+  // 2. 自動建立目錄
+  const dirname = path.dirname(resolvedPath);
+  if (!fs.existsSync(dirname)) {
+    fs.mkdirSync(dirname, { recursive: true });
+  }
+  
+  // 3. 生成 CSV 內容
+  const csvContent = generateCSV(spinLog);
+  
+  // 4. 寫入檔案
+  fs.writeFileSync(resolvedPath, csvContent, 'utf8');
+}
+
+/**
+ * v1.1: 生成 CSV 內容
+ * @param {Array} spinLog - Spin 記錄陣列
+ * @returns {string} CSV 內容
+ */
+function generateCSV(spinLog) {
+  // CSV Header
+  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId';
+  
+  // CSV Rows
+  const rows = spinLog.map(log => {
+    return [
+      log.globalSpinIndex,
+      log.baseSpinIndex,
+      log.state,
+      log.outcomeId,
+      log.type,
+      log.winAmount,
+      log.triggeredFeatureId || ''  // null 值輸出為空字串
+    ].join(',');
+  });
+  
+  return [header, ...rows].join('\n');
 }
 
 // 執行主程式

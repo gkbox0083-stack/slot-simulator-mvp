@@ -190,6 +190,28 @@ function selectPattern(rng, outcomeTable, outcomeId, state) {
   return rng.selectFromArray(patterns);
 }
 
+/**
+ * v1.1: 計算 Gap 統計指標
+ * @param {Array<number>} gaps - Gap 數值陣列
+ * @returns {Object} Gap 統計指標
+ */
+function calculateGapMetrics(gaps) {
+  if (gaps.length === 0) {
+    return { avgGap: null, medianGap: null, maxGap: null };
+  }
+
+  const avgGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+  const maxGap = Math.max(...gaps);
+
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const medianGap = sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+
+  return { avgGap, medianGap, maxGap };
+}
+
 // ============================================================================
 // Core Spec v1.0: Main Simulation Engine
 // ============================================================================
@@ -202,7 +224,7 @@ function selectPattern(rng, outcomeTable, outcomeId, state) {
  * @param {number} customBet - 自訂下注金額（可選，預設使用 betConfig.baseBet）
  * @returns {SimulationResult} 模擬結果物件
  */
-function simulate(configPath, targetBaseSpins = 10000, customBet = null, customReporter = undefined) {
+function simulate(configPath, targetBaseSpins = 10000, customBet = null, customReporter = undefined, csvEnabled = false) {
   // ========================================================================
   // 1. 讀取並驗證設定檔（Read-Only）
   // ========================================================================
@@ -254,14 +276,44 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   const result = new SimulationResult();
   result.baseGameSpins = targetBaseSpins;
 
-  // 初始化 Outcome 計數器
+  // 初始化 Outcome 計數器（v1.1: 加入 Gap 統計）
   config.outcomeTables[STATE.BASE].outcomes.forEach(outcome => {
-    result.baseOutcomeDistribution[outcome.id] = { count: 0, percentage: 0 };
+    result.baseOutcomeDistribution[outcome.id] = { 
+      count: 0, 
+      percentage: 0,
+      avgGap: null,
+      medianGap: null,
+      maxGap: null
+    };
   });
 
   config.outcomeTables[STATE.FREE].outcomes.forEach(outcome => {
-    result.freeOutcomeDistribution[outcome.id] = { count: 0, percentage: 0 };
+    result.freeOutcomeDistribution[outcome.id] = { 
+      count: 0, 
+      percentage: 0,
+      avgGap: null,      // FREE 狀態永遠為 null
+      medianGap: null,   // FREE 狀態永遠為 null
+      maxGap: null       // FREE 狀態永遠為 null
+    };
   });
+
+  // ========================================================================
+  // v1.1: Gap Tracking (僅 BASE 狀態)
+  // ========================================================================
+  const gapTrackers = {};
+  config.outcomeTables[STATE.BASE].outcomes.forEach(outcome => {
+    gapTrackers[outcome.id] = {
+      gaps: [],
+      lastOccurredBaseIndex: null
+    };
+  });
+
+  // ========================================================================
+  // v1.1: Spin Logging (CSV Data Source)
+  // ========================================================================
+  const spinLog = csvEnabled ? [] : null;
+  let globalSpinIndex = 0;
+  let currentParentBaseSpin = null;  // 追蹤觸發 Free Game 的 Base Spin
 
   // 用於詳細輸出的資料
   const spinDetails = [];
@@ -269,7 +321,7 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   let baseHitCount = 0;  // 僅計算 Base Game 中 Win > 0 的次數
 
   console.log('='.repeat(60));
-  console.log('Slot Game Core Spec v1.0.2 - 模擬開始 (Fix Off-by-One)');
+  console.log('Slot Game Core Spec v1.1 - 模擬開始 (Analysis Depth Phase)');
   console.log('='.repeat(60));
   console.log(`模擬目標: ${targetBaseSpins} 次 Base Game Spins`);
   console.log(`Base Bet: ${baseBet} (來自 betConfig.baseBet)`);
@@ -286,6 +338,8 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   let freeGameSpinsCount = 0;  // Free Game Spin 顯式計數器（必須等於 Triggers * freeSpinCount）
 
   while (baseSpins < targetBaseSpins) {
+    globalSpinIndex++;
+    
     // --------------------------------------------------------------------
     // 6.1 Bet Logic & Counter Updates (The "Check-In" Phase)
     // Core Spec v1.0.1: 必須在狀態切換邏輯發生「之前」進行計數
@@ -294,6 +348,7 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     if (currentState === STATE.BASE) {
       baseSpins++;
       result.totalBaseBet += baseBet;
+      currentParentBaseSpin = baseSpins;  // v1.1: 更新 Parent Base Spin
     } else if (currentState === STATE.FREE) {
       freeGameSpinsCount++;  // 顯式累加 Free Game Spins
     }
@@ -366,9 +421,44 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         baseHitCount++;
       }
       result.baseOutcomeDistribution[outcome.id].count++;
+      
+      // v1.1: Gap Tracking (僅 BASE 狀態)
+      const tracker = gapTrackers[outcome.id];
+      if (tracker) {
+        if (tracker.lastOccurredBaseIndex === null) {
+          // 第一次出現: 僅初始化
+          tracker.lastOccurredBaseIndex = baseSpins;
+        } else {
+          // 第二次及之後: 記錄 Gap
+          const gap = baseSpins - tracker.lastOccurredBaseIndex;
+          tracker.gaps.push(gap);
+          tracker.lastOccurredBaseIndex = baseSpins;
+        }
+      }
     } else if (previousState === STATE.FREE) {
       result.featureWin += winAmount;
       result.freeOutcomeDistribution[outcome.id].count++;
+    }
+
+    // v1.1: Spin Logging (CSV Data Source)
+    if (spinLog) {
+      const baseSpinIndex = previousState === STATE.BASE 
+        ? baseSpins 
+        : currentParentBaseSpin;  // FREE 狀態使用觸發的 Base Spin
+      
+      const triggeredFeatureId = outcome.type === 'FEATURE' 
+        ? outcome.id 
+        : '';
+      
+      spinLog.push({
+        globalSpinIndex: globalSpinIndex,
+        baseSpinIndex: baseSpinIndex,
+        state: previousState,
+        outcomeId: outcome.id,
+        type: outcome.type,
+        winAmount: winAmount,
+        triggeredFeatureId: triggeredFeatureId
+      });
     }
 
     // --------------------------------------------------------------------
@@ -411,6 +501,16 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
       result.freeGameSpins > 0 ? (count / result.freeGameSpins) * 100 : 0;
   });
 
+  // v1.1: 計算 Gap 統計
+  Object.keys(gapTrackers).forEach(outcomeId => {
+    const tracker = gapTrackers[outcomeId];
+    const gaps = tracker.gaps;
+    const metrics = calculateGapMetrics(gaps);
+    result.baseOutcomeDistribution[outcomeId].avgGap = metrics.avgGap;
+    result.baseOutcomeDistribution[outcomeId].medianGap = metrics.medianGap;
+    result.baseOutcomeDistribution[outcomeId].maxGap = metrics.maxGap;
+  });
+
   // ========================================================================
   // 8. 輸出結果（可選）
   // ========================================================================
@@ -426,7 +526,8 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     spinDetails: spinDetails,
     stateTransitions: stateTransitions,
     targetBaseSpins: targetBaseSpins,
-    baseBet: baseBet
+    baseBet: baseBet,
+    spinLog: spinLog  // v1.1: CSV 資料來源
   };
 }
 

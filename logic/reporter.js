@@ -110,18 +110,21 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
   // Distribution Tables
   // ========================================================================
   
-  // BASE Game Distribution
+  // BASE Game Distribution (v1.1: 加入 Gap 統計)
   console.log('📊 BASE Game Outcome 分布');
-  console.log('─'.repeat(60));
+  console.log('─'.repeat(100));
   console.log('  ' + [
     'Name'.padEnd(20),
-    'Outcome Type'.padEnd(15),
+    'Type'.padEnd(10),
     'Weight'.padStart(8),
     'Count'.padStart(10),
     'Freq%'.padStart(10),
+    'Avg Gap'.padStart(10),
+    'Med Gap'.padStart(10),
+    'Max Gap'.padStart(10),
     'RTP Contrib.%'.padStart(15)
   ].join(' | '));
-  console.log('  ' + '─'.repeat(60));
+  console.log('  ' + '─'.repeat(100));
 
   const baseTotalWeight = config.outcomeTables.BASE.outcomes.reduce(
     (sum, outcome) => sum + outcome.weight, 0
@@ -133,29 +136,46 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
       ? ((outcome.payoutMultiplier * baseBet * dist.count) / result.totalBaseBet) * 100
       : 0;
 
+    // v1.1: Gap 統計格式化
+    const avgGapDisplay = dist.avgGap !== null 
+      ? dist.avgGap.toFixed(2).padStart(10) 
+      : 'N/A'.padStart(10);
+    const medianGapDisplay = dist.medianGap !== null 
+      ? dist.medianGap.toFixed(2).padStart(10) 
+      : 'N/A'.padStart(10);
+    const maxGapDisplay = dist.maxGap !== null 
+      ? String(dist.maxGap).padStart(10) 
+      : 'N/A'.padStart(10);
+
     console.log('  ' + [
       outcome.id.padEnd(20),
-      outcome.type.padEnd(15),
+      outcome.type.padEnd(10),
       String(outcome.weight).padStart(8),
       dist.count.toLocaleString().padStart(10),
       dist.percentage.toFixed(2).padStart(10),
+      avgGapDisplay,
+      medianGapDisplay,
+      maxGapDisplay,
       rtpContrib.toFixed(2).padStart(15)
     ].join(' | '));
   });
   console.log('');
 
-  // FREE Game Distribution
+  // FREE Game Distribution (v1.1: Gap 永遠為 N/A)
   console.log('📊 FREE Game Outcome 分布');
-  console.log('─'.repeat(60));
+  console.log('─'.repeat(100));
   console.log('  ' + [
     'Name'.padEnd(20),
-    'Outcome Type'.padEnd(15),
+    'Type'.padEnd(10),
     'Weight'.padStart(8),
     'Count'.padStart(10),
     'Freq%'.padStart(10),
+    'Avg Gap'.padStart(10),
+    'Med Gap'.padStart(10),
+    'Max Gap'.padStart(10),
     'RTP Contrib.%'.padStart(15)
   ].join(' | '));
-  console.log('  ' + '─'.repeat(60));
+  console.log('  ' + '─'.repeat(100));
 
   const freeTotalWeight = config.outcomeTables.FREE.outcomes.reduce(
     (sum, outcome) => sum + outcome.weight, 0
@@ -167,12 +187,16 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
       ? ((outcome.payoutMultiplier * baseBet * dist.count) / result.totalBaseBet) * 100
       : 0;
 
+    // v1.1: FREE 狀態的 Gap 永遠顯示 N/A
     console.log('  ' + [
       outcome.id.padEnd(20),
-      outcome.type.padEnd(15),
+      outcome.type.padEnd(10),
       String(outcome.weight).padStart(8),
       dist.count.toLocaleString().padStart(10),
       dist.percentage.toFixed(2).padStart(10),
+      'N/A'.padStart(10),
+      'N/A'.padStart(10),
+      'N/A'.padStart(10),
       rtpContrib.toFixed(2).padStart(15)
     ].join(' | '));
   });
