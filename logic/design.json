@@ -1,7 +1,7 @@
 {
   "meta": {
-    "version": "v1.3.0",
-    "description": "Slot Game v1.3 - Visual Constraint Layer"
+    "version": "v1.4.0",
+    "description": "Slot Game v1.4 - Pattern Auto Generation"
   },
   "betConfig": {
     "baseBet": 1,
@@ -54,6 +54,13 @@
             "symbolId": "H1",
             "matchCount": 5,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 5,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {
@@ -65,6 +72,13 @@
             "symbolId": "H1",
             "matchCount": 4,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 4,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {
@@ -76,6 +90,13 @@
             "symbolId": "H1",
             "matchCount": 3,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {
@@ -87,6 +108,13 @@
             "symbolId": "L1",
             "matchCount": 3,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "L1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {
@@ -126,6 +154,13 @@
             "symbolId": "H1",
             "matchCount": 5,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 5,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {
@@ -137,6 +172,13 @@
             "symbolId": "H1",
             "matchCount": 4,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 4,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {
@@ -148,6 +190,13 @@
             "symbolId": "H1",
             "matchCount": 3,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {
@@ -159,6 +208,13 @@
             "symbolId": "L1",
             "matchCount": 3,
             "allowWild": false
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "L1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
           }
         },
         {

@@ -121,6 +121,7 @@ function validateConfig(configPath) {
 
   // ========================================================================
   // v1.2: [ERROR] 檢查 WIN 類型的 Outcome 是否包含 winConfig
+  // v1.4: [ERROR/WARNING] 檢查 winCondition 結構
   // ========================================================================
   const states = ['BASE', 'FREE'];
   for (const state of states) {
@@ -136,12 +137,88 @@ function validateConfig(configPath) {
         continue;
       }
 
-      // 檢查 WIN 類型必須包含 winConfig
+      // v1.4: 檢查 winCondition 和 legacy patterns 的共存
+      const hasWinCondition = !!outcome.winCondition;
+      const hasLegacyPattern = !!(outcome.pattern || outcome.patterns);
+      
+      if (hasWinCondition && hasLegacyPattern) {
+        result.addWarning(`${state} 狀態中的 Outcome "${outcome.id}" 同時包含 winCondition 和 legacy patterns，將使用 winCondition`);
+      }
+      
+      // 必修補點 1：只對 WIN 類型要求 pattern 定義
+      // LOSS/FEATURE 類型不需要 pattern（由 resolver 自動生成）
       if (outcome.type === 'WIN') {
-        if (!outcome.winConfig) {
-          result.addError(`${state} 狀態中的 WIN 類型 Outcome "${outcome.id}" 缺少 winConfig`);
+        if (!hasWinCondition && !hasLegacyPattern) {
+          result.addError(`${state} 狀態中的 WIN 類型 Outcome "${outcome.id}" 缺少 pattern 定義（需要 winCondition 或 legacy pattern/patterns）`);
+        }
+      }
+      // LOSS/FEATURE 類型不需要 pattern，不檢查
+
+      // v1.4: 驗證 winCondition 結構
+      if (hasWinCondition) {
+        if (!outcome.winCondition.type) {
+          result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition 缺少 type`);
         } else {
-          // 檢查 winConfig 結構
+          const wcType = outcome.winCondition.type;
+          
+          if (wcType === 'LINE') {
+            // LINE 類型必須包含 symbolId 和 matchCount
+            if (!outcome.winCondition.symbolId) {
+              result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (LINE) 缺少 symbolId`);
+            }
+            if (typeof outcome.winCondition.matchCount !== 'number') {
+              result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (LINE) 的 matchCount 必須為數字`);
+            } else {
+              // 檢查 matchCount 是否超過盤面寬度
+              if (config.gameRules && config.gameRules.BASE && config.gameRules.BASE.grid) {
+                const maxCols = config.gameRules.BASE.grid.cols;
+                if (outcome.winCondition.matchCount > maxCols) {
+                  result.addError(
+                    `${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.matchCount (${outcome.winCondition.matchCount}) 超過盤面寬度 (${maxCols})`
+                  );
+                }
+                if (outcome.winCondition.matchCount < 2) {
+                  result.addWarning(
+                    `${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.matchCount (${outcome.winCondition.matchCount}) 小於 2，可能不合理`
+                  );
+                }
+              }
+            }
+          } else if (wcType === 'SCATTER') {
+            // SCATTER 類型必須包含 symbolId 和 minCount
+            if (!outcome.winCondition.symbolId) {
+              result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (SCATTER) 缺少 symbolId`);
+            }
+            if (typeof outcome.winCondition.minCount !== 'number') {
+              result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (SCATTER) 的 minCount 必須為數字`);
+            } else {
+              // 檢查 minCount 是否合理
+              if (outcome.winCondition.minCount < 2) {
+                result.addWarning(
+                  `${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.minCount (${outcome.winCondition.minCount}) 小於 2，可能不合理`
+                );
+              }
+              const gridSize = config.gameRules && config.gameRules.BASE && config.gameRules.BASE.grid
+                ? config.gameRules.BASE.grid.rows * config.gameRules.BASE.grid.cols
+                : 15;  // 預設 5x3
+              if (outcome.winCondition.minCount > gridSize) {
+                result.addError(
+                  `${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.minCount (${outcome.winCondition.minCount}) 超過盤面大小 (${gridSize})`
+                );
+              }
+            }
+          } else {
+            result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.type 不支援: ${wcType} (僅支援 LINE, SCATTER)`);
+          }
+        }
+      }
+
+      // 檢查 WIN 類型必須包含 winConfig（v1.2 邏輯，保留向後相容）
+      if (outcome.type === 'WIN') {
+        if (!outcome.winConfig && !hasWinCondition) {
+          result.addError(`${state} 狀態中的 WIN 類型 Outcome "${outcome.id}" 缺少 winConfig（且無 winCondition）`);
+        } else if (outcome.winConfig) {
+          // 檢查 winConfig 結構（僅當存在時）
           if (!outcome.winConfig.symbolId) {
             result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winConfig 缺少 symbolId`);
           }

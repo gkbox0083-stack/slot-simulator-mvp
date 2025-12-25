@@ -216,8 +216,8 @@ function exportCSV(spinLog, csvPath) {
  * @returns {string} CSV 內容
  */
 function generateCSV(spinLog) {
-  // CSV Header
-  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId';
+  // CSV Header (v1.4: 加入 patternSource, winConditionType, generatedWinLine, anchorsCount)
+  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount';
   
   // CSV Rows
   const rows = spinLog.map(log => {
@@ -228,7 +228,11 @@ function generateCSV(spinLog) {
       log.outcomeId,
       log.type,
       log.winAmount,
-      log.triggeredFeatureId || ''  // null 值輸出為空字串
+      log.triggeredFeatureId || '',  // null 值輸出為空字串
+      log.patternSource || 'NONE',  // v1.4
+      log.winConditionType || '',    // v1.4
+      log.generatedWinLine !== null && log.generatedWinLine !== undefined ? log.generatedWinLine : '',  // v1.4
+      log.anchorsCount || 0  // v1.4
     ].join(',');
   });
   

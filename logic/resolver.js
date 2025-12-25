@@ -1,10 +1,12 @@
 const { RNG } = require('./rng');  // v1.2.1: 從獨立模組導入 RNG（解決循環依賴）
 const { VisualConstraintEngine } = require('./visualConstraint');  // v1.3: Visual Constraint Layer
+const { PatternGenerator } = require('./patternGenerator');  // v1.4: Pattern Auto Generation
 
 /**
  * Pattern Resolver - 將 Outcome 轉換為 Grid
  * v1.2: Pattern Resolver Layer
  * v1.3: 整合 Visual Constraint Layer
+ * v1.4: 整合 Pattern Auto Generation
  * 
  * 核心原則：
  * - 只做視覺映射，不計算賠率、不判斷中獎、不做數學運算
@@ -17,6 +19,9 @@ class PatternResolver {
     this.gameRule = gameRule;
     this.symbols = symbols;  // 引用自 design.json 的 symbols 陣列
     this.rng = rng;
+    
+    // v1.4: 初始化 Pattern Generator
+    this.patternGenerator = new PatternGenerator(gameRule, symbols);
     
     // v1.3: 初始化 Visual Constraint Engine（如果啟用）
     this.visualEngine = null;
@@ -56,8 +61,8 @@ class PatternResolver {
   /**
    * 主要介面：解析 Outcome 並生成盤面
    * @param {Object} outcome - Outcome 物件
-   * @param {Object} context - v1.3: 可選的 context（包含 visualSeed 或 spinIndex）
-   * @returns {Object} { grid: Array<Array<string>>, winLine: number|null }
+   * @param {Object} context - v1.3/v1.4: context（包含 visualSeed/spinIndex, mathSeed, outcomeId）
+   * @returns {Object} { grid: Array<Array<string>>, winLine: number|null, patternSource: string, ... }
    * 
    * winLine 定義：
    * - 型別：number | null
@@ -65,9 +70,62 @@ class PatternResolver {
    * - null：表示 LOSS/FEATURE，無中獎線
    * - number：表示主要中獎線的索引
    * - v1.2 保證：最多只有一條中獎線（單線模式）
+   * 
+   * patternSource 定義（v1.4）：
+   * - "GENERATED": 使用 winCondition 自動生成
+   * - "LEGACY": 使用舊的 pattern/patterns
+   * - "NONE": 無 pattern 定義（錯誤）
    */
   resolve(outcome, context = null) {
-    // 驗證 matchCount 邊界
+    // v1.4: 決定 pattern source（GENERATED/LEGACY/NONE）
+    // 必修補點 2：決策順序固定，更清晰
+    let patternSource = 'NONE';
+    let generatedInfo = null;
+
+    if (outcome.type === 'WIN') {
+      // WIN 類型：必須有 pattern 定義
+      if (outcome.winCondition) {
+        // 有 winCondition → GENERATED
+        patternSource = 'GENERATED';
+        
+        // 檢查是否同時存在 legacy patterns（警告）
+        if (outcome.pattern || outcome.patterns) {
+          console.warn(`[PatternResolver] Outcome "${outcome.id}" 同時包含 winCondition 和 legacy patterns，將使用 winCondition`);
+        }
+
+        // 驗證 context（GENERATED 需要 context）
+        if (!context || context.spinIndex === undefined || !context.mathSeed || !context.outcomeId) {
+          // 使用安全預設值
+          context = context || {};
+          context.spinIndex = context.spinIndex || 0;
+          context.mathSeed = context.mathSeed || 'default';
+          context.outcomeId = context.outcomeId || outcome.id;
+          console.warn(`[PatternResolver] Outcome "${outcome.id}" 使用 winCondition 但 context 不完整，使用預設值`);
+        }
+
+        // 生成 anchors
+        try {
+          generatedInfo = this.patternGenerator.generate(outcome.winCondition, {
+            spinIndex: context.spinIndex,
+            mathSeed: context.mathSeed || 'default',
+            outcomeId: context.outcomeId || outcome.id
+          });
+        } catch (error) {
+          throw new Error(`PatternGenerator 生成失敗 (${outcome.id}): ${error.message}`);
+        }
+      } else if (outcome.pattern || outcome.patterns) {
+        // 有 legacy pattern(s) → LEGACY
+        patternSource = 'LEGACY';
+      } else {
+        // WIN 類型缺定義 → throw
+        throw new Error(`WIN 類型 Outcome "${outcome.id}" 缺少 pattern 定義（需要 winCondition 或 legacy pattern/patterns）`);
+      }
+    } else {
+      // LOSS/FEATURE/其他非 WIN：直接走原本 _resolveLoss()（不要求 pattern）
+      patternSource = 'NONE';
+    }
+
+    // 驗證 matchCount 邊界（僅 WIN 類型）
     if (outcome.type === 'WIN' && outcome.winConfig) {
       const matchCount = outcome.winConfig.matchCount;
       if (matchCount > this.maxMatchCount) {
@@ -80,27 +138,107 @@ class PatternResolver {
       }
     }
 
-    // v1.2: 生成基礎 grid
+    // v1.2/v1.4: 生成基礎 grid
     let patternResult;
-    if (outcome.type === 'WIN') {
+    if (patternSource === 'GENERATED') {
+      // v1.4: 使用生成的 anchors 建立 grid
+      patternResult = this._resolveFromAnchors(outcome, generatedInfo);
+    } else if (patternSource === 'LEGACY') {
+      // v1.2: 使用 legacy 邏輯（WIN 類型使用 legacy pattern）
       patternResult = this._resolveWin(outcome);
-    } else if (outcome.type === 'LOSS' || outcome.type === 'FEATURE') {
+    } else if (patternSource === 'NONE') {
+      // LOSS/FEATURE：直接走原本 _resolveLoss()（不要求 pattern）
       patternResult = this._resolveLoss(outcome);
     } else {
-      throw new Error(`Unknown outcome type: ${outcome.type}`);
+      throw new Error(`無效的 patternSource: ${patternSource}`);
     }
 
-    // v1.3: 應用 Visual Constraint（如果啟用）
-    if (this.visualEngine && context) {
+    // 加入 v1.4 的 metadata
+    patternResult.patternSource = patternSource;
+    if (generatedInfo) {
+      patternResult.winConditionType = generatedInfo.winConditionType;
+      patternResult.anchorsCount = generatedInfo.anchors ? generatedInfo.anchors.length : 0;
+    }
+
+    // v1.3/v1.4.x: 應用 Visual Constraint（如果啟用）
+    if (this.visualEngine) {
+      // v1.4.x: 確保 context 存在（fallback + warning）
+      const safeContext = context || {
+        spinIndex: 0,
+        mathSeed: 'default',
+        outcomeId: outcome.id
+      };
+      
+      if (!context) {
+        console.warn(`[PatternResolver] Outcome "${outcome.id}" 缺少 context，使用預設值`);
+      }
+      
       patternResult.grid = this.visualEngine.applyConstraints(
         patternResult.grid,
         outcome,
         patternResult.winLine,
-        context
+        safeContext
       );
     }
 
     return patternResult;
+  }
+
+  /**
+   * v1.4: 從生成的 anchors 建立 grid
+   * 
+   * @param {Object} outcome - Outcome 物件
+   * @param {Object} generatedInfo - PatternGenerator 生成的資訊
+   * @returns {Object} { grid, winLine, ... }
+   */
+  _resolveFromAnchors(outcome, generatedInfo) {
+    const { anchors, generatedWinLine, winConditionType } = generatedInfo;
+
+    // 初始化空 grid
+    const grid = Array(this.rows).fill(null).map(() => Array(this.cols).fill(null));
+
+    // 放置 anchors
+    anchors.forEach(anchor => {
+      grid[anchor.row][anchor.col] = anchor.symbolId;
+    });
+
+    // 填充剩餘位置
+    for (let row = 0; row < this.rows; row++) {
+      for (let col = 0; col < this.cols; col++) {
+        if (grid[row][col] === null) {
+          grid[row][col] = this._getFillerSymbol(null, row, col);
+        }
+      }
+    }
+
+    // 驗證 grid 合法性
+    const expectedWinLine = winConditionType === 'LINE' ? generatedWinLine : null;
+    if (!this._validateGrid(grid, expectedWinLine)) {
+      // 如果驗證失敗，重試（最多 10 次）
+      for (let retry = 0; retry < 10; retry++) {
+        // 重新填充非 anchor 位置
+        for (let row = 0; row < this.rows; row++) {
+          for (let col = 0; col < this.cols; col++) {
+            // 檢查是否為 anchor 位置
+            const isAnchor = anchors.some(a => a.row === row && a.col === col);
+            if (!isAnchor) {
+              grid[row][col] = this._getFillerSymbol(null, row, col);
+            }
+          }
+        }
+        if (this._validateGrid(grid, expectedWinLine)) {
+          break;
+        }
+      }
+    }
+
+    return {
+      grid: grid,
+      winLine: generatedWinLine,
+      patternSource: 'GENERATED',
+      winConditionType: winConditionType,
+      anchorsCount: anchors.length
+    };
   }
 
   /**

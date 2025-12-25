@@ -242,6 +242,22 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
         ? ` | Win Line: ${detail.patternResult.winLine + 1}`
         : '';
 
+      // v1.4: Pattern Generation 資訊
+      const patternSource = detail.patternResult?.patternSource || 'NONE';
+      const winConditionType = detail.patternResult?.winConditionType || null;
+      const anchorsCount = detail.patternResult?.anchorsCount || 0;
+      let patternInfo = '';
+      if (patternSource === 'GENERATED') {
+        const typeInfo = winConditionType ? `, ${winConditionType}` : '';
+        const winLineInfo2 = detail.patternResult?.winLine !== null 
+          ? `, WinLine=${detail.patternResult.winLine + 1}` 
+          : '';
+        const anchorsInfo = anchorsCount > 0 ? `, Anchors=${anchorsCount}` : '';
+        patternInfo = ` | Pattern: GENERATED${typeInfo}${winLineInfo2}${anchorsInfo}`;
+      } else if (patternSource === 'LEGACY') {
+        patternInfo = ' | Pattern: LEGACY';
+      }
+
       const stateLabel = detail.state === 'BASE' ? 'BASE' : 'FREE';
       const baseSpinLabel = detail.baseSpin !== null 
         ? `[Base #${detail.baseSpin}]` 
@@ -262,7 +278,7 @@ function printReport(result, config, spinDetails, stateTransitions, targetBaseSp
       // 輸出格式：Header → Grid → Info
       console.log(`  #${String(index + 1).padStart(2)} ${baseSpinLabel} [${stateLabel}]:`);
       console.log(`  ${gridDisplay.split('\n').join('\n  ')}`);
-      console.log(`  → ${outcomeInfo} - ${winInfo}${winLineInfo}${freeSpinsInfo}${transitionInfo}`);
+      console.log(`  → ${outcomeInfo} - ${winInfo}${winLineInfo}${patternInfo}${freeSpinsInfo}${transitionInfo}`);
       console.log('');
     });
     console.log('');

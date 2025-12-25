@@ -157,8 +157,10 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
 
   // ========================================================================
   // 2. 初始化 RNG（集中化隨機數生成）
+  // v1.4: 追蹤 mathSeed 用於 Pattern Generator
   // ========================================================================
   const rng = new RNG();
+  const mathSeed = config.seed || 'default';  // v1.4: 用於 Pattern Generator 的 seed
 
   // ========================================================================
   // v1.2: 初始化 Pattern Resolver (僅 BASE 狀態)
@@ -280,13 +282,16 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     // --------------------------------------------------------------------
     // 6.3 Pattern Resolution (v1.2: 使用 Pattern Resolver)
     // v1.3: 傳遞 context 給 Visual Constraint Layer
+    // v1.4: 傳遞 context 給 Pattern Generator（包含 mathSeed）
     // --------------------------------------------------------------------
     let patternResult;
     if (currentState === STATE.BASE && baseResolver) {
-      // v1.3: 建立 context（包含 spinIndex 用於 Visual RNG）
+      // v1.3/v1.4: 建立 context（包含 spinIndex, mathSeed, outcomeId）
       const context = {
-        spinIndex: globalSpinIndex,  // 使用 globalSpinIndex 作為 visualSeed 來源
-        visualSeed: globalSpinIndex * 7919 + 1000000  // 推導 visualSeed（與 Math RNG 隔離）
+        spinIndex: globalSpinIndex,  // v1.3: 用於 Visual RNG
+        visualSeed: globalSpinIndex * 7919 + 1000000,  // v1.3: 推導 visualSeed（與 Math RNG 隔離）
+        mathSeed: mathSeed,  // v1.4: 用於 Pattern Generator
+        outcomeId: outcome.id  // v1.4: 用於 Pattern Generator
       };
       patternResult = baseResolver.resolve(outcome, context);
     } else {
@@ -386,7 +391,12 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         outcomeId: outcome.id,
         type: outcome.type,
         winAmount: winAmount,
-        triggeredFeatureId: triggeredFeatureId
+        triggeredFeatureId: triggeredFeatureId,
+        // v1.4: Pattern Generation 資訊
+        patternSource: patternResult.patternSource || 'NONE',
+        winConditionType: patternResult.winConditionType || null,
+        generatedWinLine: patternResult.winLine !== null ? patternResult.winLine : null,
+        anchorsCount: patternResult.anchorsCount || 0
       });
     }
 
