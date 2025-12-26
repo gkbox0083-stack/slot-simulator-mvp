@@ -30,7 +30,8 @@ function parseArgs() {
       enabled: false,
       path: null
     },
-    noVisual: false  // v1.3: 支援 --no-visual 參數
+    noVisual: false,  // v1.3: 支援 --no-visual 參數
+    seed: null  // Determinism: 支援 --seed 參數
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -46,7 +47,8 @@ Slot Math Simulator v1.1
 選項:
   -n, --spins <number>    設定模擬 Base Spin 次數 (預設 10000)
   -f, --file <path>       指定 JSON 設定檔路徑 (預設 logic/design.json)
-  --csv <filename>        匯出逐 Spin 詳細記錄到 CSV 檔案
+  --csv [filename]        匯出逐 Spin 詳細記錄到 CSV 檔案 (可選檔案名，預設 result.csv)
+  --seed <int>            設定 RNG seed 以確保可重現性 (非負整數，>= 0)
   --no-visual             關閉 Visual Constraint Layer (v1.3)
   -h, --help              顯示幫助訊息
 
@@ -54,6 +56,8 @@ Slot Math Simulator v1.1
   node cli.js -n 50000 -f logic/design.json
   node cli.js --spins 10000 --csv result.csv
   node cli.js --csv output/data.csv
+  node cli.js -n 2000 --csv --seed 12345
+  node cli.js --csv --seed 12345
       `);
       process.exit(0);
     }
@@ -78,12 +82,31 @@ Slot Math Simulator v1.1
       options.file = args[i + 1];
       i++;
     } else if (arg === '--csv') {
+      // Determinism Fix: --csv 作為可選的 boolean flag
+      // 如果下一個參數存在且不是以 '-' 開頭，則作為檔案路徑
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        options.csv.enabled = true;
+        options.csv.path = args[i + 1];
+        i++;
+      } else {
+        // 沒有提供檔案名，使用預設值
+        options.csv.enabled = true;
+        options.csv.path = 'result.csv';
+      }
+    } else if (arg === '--seed') {
+      // Determinism: 支援 --seed 參數
       if (i + 1 >= args.length) {
-        console.error('❌ 錯誤: --csv 參數需要一個檔案路徑');
+        console.error('❌ 錯誤: --seed 參數需要一個整數值');
         process.exit(1);
       }
-      options.csv.enabled = true;
-      options.csv.path = args[i + 1];
+      const seedValue = args[i + 1];
+      // 檢查是否為整數（允許 0 或正整數）
+      const seedInt = parseInt(seedValue, 10);
+      if (isNaN(seedInt) || seedInt < 0 || !Number.isInteger(seedInt)) {
+        console.error('❌ 錯誤: --seed 必須為非負整數 (>= 0)');
+        process.exit(1);
+      }
+      options.seed = seedInt;
       i++;
     } else if (arg === '--no-visual') {
       // v1.3: 關閉 Visual Constraint Layer
@@ -128,7 +151,7 @@ function main() {
 
     // 讀取設定檔
     const configData = fs.readFileSync(configPath, 'utf8');
-    const config = JSON.parse(configData);
+    let config = JSON.parse(configData);  // 改為 let，因為可能需要修改
 
     // v1.3: 如果指定 --no-visual，覆蓋 visualConfig.enabled
     if (options.noVisual) {
@@ -140,16 +163,26 @@ function main() {
       console.log('');
     }
 
+    // Determinism: 如果指定了 seed，設定到 config 中（用於 RNG 初始化）
+    if (options.seed !== null) {
+      // 確保 config 是可修改的（深拷貝）
+      config = JSON.parse(JSON.stringify(config));
+      config.seed = options.seed;
+      console.log(`🌱 使用固定 seed: ${options.seed} (deterministic mode)`);
+      console.log('');
+    }
+
     console.log('✅ 設定檔驗證通過');
     console.log('');
     console.log('🚀 開始模擬...');
     console.log('');
 
-    // v1.3: 如果修改了 config（如 --no-visual），傳遞修改後的 config
-    const overrideConfig = options.noVisual ? config : null;
+    // v1.3: 如果修改了 config（如 --no-visual 或 --seed），傳遞修改後的 config
+    const overrideConfig = (options.noVisual || options.seed !== null) ? config : null;
     
     // 執行模擬（不傳入 customBet，使用 JSON 中的 baseBet；不輸出，使用 reporter；啟用 CSV）
-    const simulationData = simulate(configPath, options.spins, null, true, options.csv.enabled, overrideConfig);
+    // Determinism: 傳遞 seed 參數（如果指定）
+    const simulationData = simulate(configPath, options.spins, null, true, options.csv.enabled, overrideConfig, options.seed);
 
     // 使用 reporter 輸出優化後的報表
     printReport(

@@ -148,7 +148,7 @@ function calculateGapMetrics(gaps) {
  * @param {number} customBet - 自訂下注金額（可選，預設使用 betConfig.baseBet）
  * @returns {SimulationResult} 模擬結果物件
  */
-function simulate(configPath, targetBaseSpins = 10000, customBet = null, customReporter = undefined, csvEnabled = false, overrideConfig = null) {
+function simulate(configPath, targetBaseSpins = 10000, customBet = null, customReporter = undefined, csvEnabled = false, overrideConfig = null, customSeed = null) {
   // ========================================================================
   // 1. 讀取並驗證設定檔（Read-Only）
   // v1.3: 支援 overrideConfig（用於 --no-visual 等 CLI 參數）
@@ -185,9 +185,11 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   // ========================================================================
   // 2. 初始化 RNG（集中化隨機數生成）
   // v1.4: 追蹤 mathSeed 用於 Pattern Generator
+  // Determinism: 支援 customSeed 參數（優先於 config.seed）
   // ========================================================================
-  const rng = new RNG();
-  const mathSeed = config.seed || 'default';  // v1.4: 用於 Pattern Generator 的 seed
+  // Determinism: 優先使用 customSeed（來自 CLI），否則使用 config.seed，最後使用 'default'
+  const mathSeed = customSeed !== null ? String(customSeed) : (config.seed || 'default');
+  const rng = new RNG(mathSeed);  // Determinism: 使用 seed 初始化 RNG
 
   // ========================================================================
   // v1.2: 初始化 Pattern Resolver (僅 BASE 狀態)
