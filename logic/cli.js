@@ -238,8 +238,8 @@ function csvEscape(field) {
 }
 
 function generateCSV(spinLog) {
-  // v1.4.patch: CSV Header（包含所有 telemetry 欄位，包含新的 Tease probability 和 Guard diagnostics）
-  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount,visualRequestedType,visualAppliedType,visualApplied,visualPaylinesChosen,visualAttemptsUsed,visualGuardFailReason,visualSeed,teaseEligible,teaseChanceUsed,teaseRoll,teaseBlockedBy,visualGuardFailDetail,visualAttemptReasons';
+  // v1.5.0: CSV Header（包含所有 telemetry 欄位 + shadow mode 欄位）
+  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount,visualRequestedType,visualAppliedType,visualApplied,visualPaylinesChosen,visualAttemptsUsed,visualGuardFailReason,visualSeed,teaseEligible,teaseChanceUsed,teaseRoll,teaseBlockedBy,visualGuardFailDetail,visualAttemptReasons,expectedWinAmount,evaluatedWinAmount,evaluationMatch,evaluatedEventCount,evaluatedRuleTypes,eventsJson';
   
   // CSV Rows
   const rows = spinLog.map(log => {
@@ -280,7 +280,14 @@ function generateCSV(spinLog) {
       csvEscape(log.teaseBlockedBy || 'NONE'),
       // v1.4.patch: Guard Diagnostics fields（JSON 字串，需要 quoting）
       csvEscape(log.visualGuardFailDetail || ''),  // v1.4.patch_tease_diag_fix: 已清理成功案例
-      csvEscape(visualAttemptReasons)  // v1.4.patch_tease_diag_fix: 已經是字串
+      csvEscape(visualAttemptReasons),  // v1.4.patch_tease_diag_fix: 已經是字串
+      // v1.5.0: Shadow Mode fields
+      csvEscape(log.expectedWinAmount !== undefined ? log.expectedWinAmount : ''),
+      csvEscape(log.evaluatedWinAmount !== undefined ? log.evaluatedWinAmount : ''),
+      csvEscape(log.evaluationMatch !== undefined ? (log.evaluationMatch ? 'true' : 'false') : ''),
+      csvEscape(log.evaluatedEventCount !== undefined ? log.evaluatedEventCount : 0),
+      csvEscape(log.evaluatedRuleTypes || ''),
+      csvEscape(log.eventsJson || '')  // JSON 字串，需要 quoting
     ];
     
     return row.join(',');

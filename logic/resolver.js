@@ -160,31 +160,8 @@ class PatternResolver {
       patternResult.anchorsCount = generatedInfo.anchors ? generatedInfo.anchors.length : 0;
     }
 
-    // v1.3/v1.4.x: 應用 Visual Constraint（如果啟用）
-    if (this.visualEngine) {
-      // v1.4.x: 確保 context 存在（fallback + warning）
-      const safeContext = context || {
-        spinIndex: 0,
-        mathSeed: 'default',
-        outcomeId: outcome.id
-      };
-      
-      if (!context) {
-        console.warn(`[PatternResolver] Outcome "${outcome.id}" 缺少 context，使用預設值`);
-      }
-      
-      // Phase A2: applyConstraints 現在返回 { grid, telemetry }
-      const visualResult = this.visualEngine.applyConstraints(
-        patternResult.grid,
-        outcome,
-        patternResult.winLine,
-        safeContext
-      );
-      
-      // Phase A3: 傳遞 telemetry（不影響邏輯）
-      patternResult.grid = visualResult.grid;
-      patternResult.visualTelemetry = visualResult.telemetry;
-    }
+    // v1.5.0: Visual Constraint 已移至 simulate.js（在 evaluator 之後）
+    // resolver 只負責生成 grid，不處理 visual 層
 
     return patternResult;
   }

@@ -82,7 +82,17 @@ class VisualConstraintEngine {
    * @param {Object} context - 必須包含 { spinIndex, mathSeed, outcomeId } 或 visualSeed
    * @returns {Object} { grid, telemetry }
    */
-  applyConstraints(grid, outcome, winLine, context) {
+  /**
+   * v1.5.0: 更新簽名，加入 winEvents 參數
+   * 
+   * @param {Array<Array<string>>} grid - 盤面
+   * @param {Object} outcome - Outcome 物件
+   * @param {Array} winEvents - WinEvent 陣列（v1.5.0 新增）
+   * @param {Object} context - Context 物件
+   * @param {number|null} legacyWinLine - Legacy winLine（v1.5.0 過渡期暫留）
+   * @returns {Object} { grid, telemetry }
+   */
+  applyConstraints(grid, outcome, winEvents = [], context = null, legacyWinLine = null) {
     // v1.4.patch: 初始化 telemetry（包含新欄位）
     const telemetry = {
       visualRequestedType: 'NONE',
@@ -124,6 +134,9 @@ class VisualConstraintEngine {
     let processedGrid = grid.map(row => [...row]);
     const baseGrid = grid.map(row => [...row]);  // 保存原始 grid 作為 fallback
 
+    // v1.5.0: 推導 protectedCells（嚴格順序：winEvents.positions > legacyWinLine > empty）
+    const protectedCells = this._deriveProtectedCells(winEvents, legacyWinLine, outcome);
+
     // ========================================================================
     // Phase 1: Feature Patch (Near Miss / Tease)
     // ========================================================================
@@ -151,7 +164,12 @@ class VisualConstraintEngine {
         }
       }
       
-      const teaseResult = this._applyTease(processedGrid, outcome, winLine, visualRng, telemetry);
+      // v1.5.0: 從 winEvents 推導 winLine（用於 _applyTease，過渡期相容）
+      const teaseWinLine = winEvents && winEvents.length > 0 && winEvents[0].paylineIndex !== undefined
+        ? winEvents[0].paylineIndex
+        : legacyWinLine;
+      
+      const teaseResult = this._applyTease(processedGrid, outcome, teaseWinLine, visualRng, telemetry, protectedCells);
       processedGrid = teaseResult.grid;
       Object.assign(telemetry, teaseResult.telemetry);
     } else if (this.isNearMiss(outcome)) {
@@ -163,9 +181,14 @@ class VisualConstraintEngine {
 
     // ========================================================================
     // Phase 2: General Visual Optimization (v1.3 behaviors)
+    // v1.5.0: 使用 protectedCells（從 winEvents 推導）
     // ========================================================================
     if (outcome.type === 'WIN') {
-      processedGrid = this._applyWinGeneralOptimization(processedGrid, outcome, winLine, visualRng);
+      // v1.5.0: 從 winEvents 推導 winLine（過渡期相容）
+      const winLineForOpt = winEvents && winEvents.length > 0 && winEvents[0].paylineIndex !== undefined
+        ? winEvents[0].paylineIndex
+        : legacyWinLine;
+      processedGrid = this._applyWinGeneralOptimization(processedGrid, outcome, winLineForOpt, visualRng, protectedCells);
     } else if (outcome.type === 'LOSS' || this.isNearMiss(outcome)) {
       processedGrid = this._applyLossGeneralOptimization(processedGrid, outcome, visualRng);
     }
@@ -179,11 +202,16 @@ class VisualConstraintEngine {
     let lastFailReason = null;
     let lastFailDetail = null;
     
+    // v1.5.0: 推導 expectedWinLine（用於後續檢查）
+    const expectedWinLine = winEvents && winEvents.length > 0 && winEvents[0].paylineIndex !== undefined
+      ? winEvents[0].paylineIndex
+      : legacyWinLine;
+    
     for (let retry = 0; retry < maxRetries; retry++) {
       telemetry.visualAttemptsUsed = retry + 1;
       
       // Phase B: 檢查是否包含禁止符號
-      const forbiddenSymbolResult = this._checkForbiddenSymbols(processedGrid, outcome, winLine);
+      const forbiddenSymbolResult = this._checkForbiddenSymbols(processedGrid, outcome, expectedWinLine);
       if (forbiddenSymbolResult.detected) {
         // v1.4.patch_tease_diag_fix: 只記錄到 attempt history，不寫入 final-fail fields
         telemetry.visualAttemptReasons.push('FORBIDDEN_SYMBOL_DETECTED');
@@ -192,15 +220,15 @@ class VisualConstraintEngine {
         
         // 如果驗證失敗，重新應用 Phase 2（保留 Phase 1 的結果）
         if (outcome.type === 'WIN') {
-          processedGrid = this._applyWinGeneralOptimization(processedGrid, outcome, winLine, visualRng);
+          processedGrid = this._applyWinGeneralOptimization(processedGrid, outcome, expectedWinLine, visualRng, protectedCells);
         } else {
           processedGrid = this._applyLossGeneralOptimization(processedGrid, outcome, visualRng);
         }
         continue;
       }
       
-      // 驗證安全性
-      const safetyResult = this._validateSafety(processedGrid, outcome, winLine);
+      // v1.5.0: 驗證安全性（使用 winEvents 推導 expectedWinLine）
+      const safetyResult = this._validateSafety(processedGrid, outcome, expectedWinLine);
       if (safetyResult.isSafe) {
         // v1.4.patch_tease_diag_fix: 成功時記錄到 attempt history
         telemetry.visualAttemptReasons.push('SUCCESS');
@@ -225,7 +253,7 @@ class VisualConstraintEngine {
 
       // 如果驗證失敗，重新應用 Phase 2（保留 Phase 1 的結果）
       if (outcome.type === 'WIN') {
-        processedGrid = this._applyWinGeneralOptimization(processedGrid, outcome, winLine, visualRng);
+        processedGrid = this._applyWinGeneralOptimization(processedGrid, outcome, expectedWinLine, visualRng, protectedCells);
       } else {
         processedGrid = this._applyLossGeneralOptimization(processedGrid, outcome, visualRng);
       }
@@ -290,6 +318,44 @@ class VisualConstraintEngine {
     }
     
     return { grid: finalGrid, telemetry };
+  }
+
+  /**
+   * v1.5.0: 推導 protectedCells（嚴格順序）
+   * 
+   * Priority 1: use winEvents[0].positions (no guessing)
+   * Priority 2: fallback to legacyWinLine (v1.5.0 transitional only)
+   * Priority 3: LOSS → protectedCells empty
+   * 
+   * @param {Array} winEvents - WinEvent 陣列
+   * @param {number|null} legacyWinLine - Legacy winLine（過渡期）
+   * @param {Object} outcome - Outcome 物件
+   * @returns {Set<string>} protectedCells（cellKey 格式："row,col"）
+   */
+  _deriveProtectedCells(winEvents, legacyWinLine, outcome) {
+    const protectedCells = new Set();
+    
+    // Priority 1: use winEvents[0].positions (no guessing)
+    if (winEvents && winEvents.length > 0 && winEvents[0].positions && winEvents[0].positions.length > 0) {
+      winEvents[0].positions.forEach(([row, col]) => {
+        protectedCells.add(`${row},${col}`);
+      });
+      return protectedCells;
+    }
+    
+    // Priority 2: fallback to legacyWinLine (v1.5.0 transitional only)
+    if (legacyWinLine !== null && legacyWinLine >= 0 && legacyWinLine < this.gameRule.paylines.length) {
+      const payline = this.gameRule.paylines[legacyWinLine];
+      const matchCount = outcome.winConfig ? outcome.winConfig.matchCount : 0;
+      for (let i = 0; i < matchCount && i < payline.length; i++) {
+        const [row, col] = payline[i];
+        protectedCells.add(`${row},${col}`);
+      }
+      return protectedCells;
+    }
+    
+    // Priority 3: LOSS → protectedCells empty
+    return protectedCells;
   }
 
   /**
@@ -557,13 +623,14 @@ class VisualConstraintEngine {
 
   /**
    * Phase A2: 應用 Tease（返回 { grid, telemetry }）
+   * v1.5.0: 使用 protectedCells 參數（從 winEvents 推導）
    * 
    * Tease Red Lines (non-negotiable):
    * 1. WinLine protection: 對於 true winLine，前 matchCount 個符號 MUST NOT change
    * 2. Anti-Extend (MVP): 對於 winLine 上 matchCount 之後的位置，MUST NOT 等於 winSymbolId
    * 3. Tease placement: 優先應用 tease 到 1~2 條與 true winLine 不同的 payline
    */
-  _applyTease(grid, outcome, winLine, visualRng, telemetry) {
+  _applyTease(grid, outcome, winLine, visualRng, telemetry, protectedCells = null) {
     if (winLine === null || winLine < 0 || winLine >= this.gameRule.paylines.length) {
       return { grid, telemetry };  // 無效的 winLine，不應用 tease
     }
@@ -577,11 +644,14 @@ class VisualConstraintEngine {
       return { grid, telemetry };  // 無法應用 tease
     }
 
-    // 保護區域：true winLine 的前 matchCount 個符號
-    const protectedCells = new Set();
-    for (let i = 0; i < matchCount && i < truePayline.length; i++) {
-      const [row, col] = truePayline[i];
-      protectedCells.add(`${row},${col}`);
+    // v1.5.0: 使用傳入的 protectedCells（如果存在），否則從 winLine 推導
+    const protectedCellsSet = protectedCells || new Set();
+    if (protectedCellsSet.size === 0) {
+      // Fallback: 從 winLine 推導（過渡期）
+      for (let i = 0; i < matchCount && i < truePayline.length; i++) {
+        const [row, col] = truePayline[i];
+        protectedCellsSet.add(`${row},${col}`);
+      }
     }
 
     // Anti-Extend: true winLine 上 matchCount 之後的位置不得使用 winSymbolId
@@ -622,7 +692,7 @@ class VisualConstraintEngine {
         for (let i = 0; i < 2 && i < payline.length; i++) {
           const [row, col] = payline[i];
           const cellKey = `${row},${col}`;
-          if (!protectedCells.has(cellKey)) {
+          if (!protectedCellsSet.has(cellKey)) {
             teaseGrid[row][col] = teaseSymbol.id;
           }
         }
@@ -631,7 +701,7 @@ class VisualConstraintEngine {
         if (2 < payline.length) {
           const [row, col] = payline[2];
           const cellKey = `${row},${col}`;
-          if (!protectedCells.has(cellKey)) {
+          if (!protectedCellsSet.has(cellKey)) {
             const breakSymbol = visualRng.selectFromArray(lowSymbols);
             teaseGrid[row][col] = breakSymbol.id;
           }
@@ -659,22 +729,23 @@ class VisualConstraintEngine {
 
   /**
    * v1.4.x: WIN General Optimization (Phase 2)
+   * v1.5.0: 使用 protectedCells 參數（從 winEvents 推導）
    */
-  _applyWinGeneralOptimization(grid, outcome, winLine, visualRng) {
-    if (winLine === null || winLine < 0 || winLine >= this.gameRule.paylines.length) {
-      return grid;
+  _applyWinGeneralOptimization(grid, outcome, winLine, visualRng, protectedCells = null) {
+    // v1.5.0: 使用傳入的 protectedCells（如果存在），否則從 winLine 推導
+    let protectedCellsSet = protectedCells || new Set();
+    
+    if (protectedCellsSet.size === 0 && winLine !== null && winLine >= 0 && winLine < this.gameRule.paylines.length) {
+      // Fallback: 從 winLine 推導（過渡期）
+      const payline = this.gameRule.paylines[winLine];
+      const matchCount = outcome.winConfig ? outcome.winConfig.matchCount : 0;
+      for (let i = 0; i < matchCount && i < payline.length; i++) {
+        const [row, col] = payline[i];
+        protectedCellsSet.add(`${row},${col}`);
+      }
     }
 
-    const payline = this.gameRule.paylines[winLine];
-    const matchCount = outcome.winConfig ? outcome.winConfig.matchCount : 0;
     const winSymbol = outcome.winConfig ? outcome.winConfig.symbolId : null;
-
-    // 保護區域：winLine 上的前 matchCount 格
-    const protectedCells = new Set();
-    for (let i = 0; i < matchCount && i < payline.length; i++) {
-      const [row, col] = payline[i];
-      protectedCells.add(`${row},${col}`);
-    }
 
     // 禁止符號：winLine 的後續位置不得填入會延長中獎的符號
     const forbiddenSymbols = new Set();
@@ -688,7 +759,15 @@ class VisualConstraintEngine {
       }
     }
 
-    return this._improveVisualDistribution(grid, protectedCells, forbiddenSymbols, payline, matchCount, visualRng);
+    // v1.5.0: 如果 winLine 有效，使用 payline 和 matchCount（用於 forbiddenSymbols 邏輯）
+    let payline = null;
+    let matchCount = 0;
+    if (winLine !== null && winLine >= 0 && winLine < this.gameRule.paylines.length) {
+      payline = this.gameRule.paylines[winLine];
+      matchCount = outcome.winConfig ? outcome.winConfig.matchCount : 0;
+    }
+    
+    return this._improveVisualDistribution(grid, protectedCellsSet, forbiddenSymbols, payline, matchCount, visualRng);
   }
 
   /**

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { PatternResolver } = require('./resolver');
 const { RNG } = require('./rng');  // v1.2.1: 從獨立模組導入 RNG（解決循環依賴）
+const { PayRuleEvaluator } = require('./payRuleEvaluator');  // v1.5.0: Pay Rule Engine
 
 // ============================================================================
 // Core Spec v1.0: State Constants
@@ -61,6 +62,32 @@ class SimulationResult {
 // ============================================================================
 // Core Spec v1.0: Engine Core Functions
 // ============================================================================
+
+/**
+ * v1.5.0: Strict Validation
+ * 
+ * 驗證 expectedWinAmount 與 evaluatedWinAmount 是否一致
+ * 
+ * @param {Object} outcome - Outcome 物件
+ * @param {number} bet - 下注金額（credit）
+ * @param {Array} winEvents - WinEvent 陣列
+ * @param {boolean} STRICT_MODE - 是否啟用嚴格模式
+ * @returns {Object} { expectedWinAmount, evaluatedWinAmount, evaluationMatch }
+ */
+function validateStrict(outcome, bet, winEvents, STRICT_MODE = true) {
+  const expectedWinAmount = Math.round(outcome.payoutMultiplier * bet); // credit int
+  const evaluatedWinAmount = winEvents.reduce((sum, e) => sum + (e.winAmount || 0), 0);
+  const evaluationMatch = (expectedWinAmount === evaluatedWinAmount);
+
+  if (STRICT_MODE && !evaluationMatch) {
+    throw new Error(
+      `Validation mismatch: expected=${expectedWinAmount}, evaluated=${evaluatedWinAmount}, ` +
+      `outcome=${outcome.id}, events=${JSON.stringify(winEvents)}`
+    );
+  }
+
+  return { expectedWinAmount, evaluatedWinAmount, evaluationMatch };
+}
 
 /**
  * 格式化盤面顯示（ASCII 格式）
@@ -165,8 +192,10 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   // ========================================================================
   // v1.2: 初始化 Pattern Resolver (僅 BASE 狀態)
   // v1.3: 整合 Visual Constraint Layer
+  // v1.5.0: 初始化 Pay Rule Evaluator
   // ========================================================================
   let baseResolver = null;
+  let baseEvaluator = null;
   if (config.gameRules && config.gameRules.BASE) {
     const visualConfig = config.visualConfig || { enabled: true, safeFiller: 'L1', maxRetries: 10 };
     baseResolver = new PatternResolver(
@@ -174,6 +203,11 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
       config.symbols,
       rng,
       visualConfig  // v1.3: 傳遞 visualConfig
+    );
+    // v1.5.0: 初始化 Pay Rule Evaluator
+    baseEvaluator = new PayRuleEvaluator(
+      config.gameRules.BASE,
+      config.symbols
     );
   }
 
@@ -289,6 +323,7 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     // 6.3 Pattern Resolution (v1.2: 使用 Pattern Resolver)
     // v1.3: 傳遞 context 給 Visual Constraint Layer
     // v1.4: 傳遞 context 給 Pattern Generator（包含 mathSeed）
+    // v1.5.0: Resolver 只生成 grid，不評估中獎
     // --------------------------------------------------------------------
     let patternResult;
     if (currentState === STATE.BASE && baseResolver) {
@@ -305,6 +340,54 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     } else {
       // Free Game 暫時使用 placeholder（v1.2 MVP 不實作 Free Game Resolver）
       patternResult = { grid: [], winLine: null };
+    }
+
+    // --------------------------------------------------------------------
+    // v1.5.0: Pay Rule Evaluation (Single Evaluation Point)
+    // --------------------------------------------------------------------
+    let winEvents = [];
+    if (currentState === STATE.BASE && baseEvaluator && patternResult.grid && patternResult.grid.length > 0) {
+      winEvents = baseEvaluator.evaluate(patternResult.grid, {});
+      
+      // v1.5.0: 設定 winAmount（根據 outcome.payoutMultiplier * bet）
+      // 注意：只有 WIN 類型的 outcome 才會有 winEvents
+      if (outcome.type === 'WIN' && winEvents.length > 0) {
+        const expectedWinAmount = Math.round(outcome.payoutMultiplier * baseBet); // credit int
+        winEvents[0].winAmount = expectedWinAmount;
+      }
+    }
+
+    // --------------------------------------------------------------------
+    // v1.5.0: Strict Validation
+    // --------------------------------------------------------------------
+    const STRICT_MODE = true;
+    const validationResult = validateStrict(outcome, baseBet, winEvents, STRICT_MODE);
+    
+    // v1.5.0: 使用 evaluatedWinAmount（如果存在），否則使用 expectedWinAmount
+    const evaluatedWinAmount = validationResult.evaluatedWinAmount;
+    const winAmount = evaluatedWinAmount !== undefined ? evaluatedWinAmount : validationResult.expectedWinAmount;
+
+    // --------------------------------------------------------------------
+    // v1.5.0: Visual Constraint（在 evaluator 之後，使用 winEvents）
+    // --------------------------------------------------------------------
+    if (currentState === STATE.BASE && baseResolver && baseResolver.visualEngine && patternResult.grid && patternResult.grid.length > 0) {
+      const context = {
+        spinIndex: globalSpinIndex,
+        mathSeed: mathSeed,
+        outcomeId: outcome.id,
+        visualState: visualState
+      };
+      
+      const visualResult = baseResolver.visualEngine.applyConstraints(
+        patternResult.grid,
+        outcome,
+        winEvents,  // v1.5.0: 傳入 winEvents
+        context,
+        patternResult.winLine  // v1.5.0: legacy fallback
+      );
+      
+      patternResult.grid = visualResult.grid;
+      patternResult.visualTelemetry = visualResult.telemetry;
     }
 
     // --------------------------------------------------------------------
@@ -351,9 +434,8 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
 
     // --------------------------------------------------------------------
     // 6.5 Accumulate Win (P3: Virtual Bet Reference)
+    // v1.5.0: winAmount 已在上方由 validateStrict 計算（使用 evaluatedWinAmount）
     // --------------------------------------------------------------------
-    // Free Game 的 Win Calculation 必須基於觸發該局的 baseBet
-    const winAmount = outcome.payoutMultiplier * baseBet;
 
     // 根據 Spin 時的狀態（previousState）進行統計
     if (previousState === STATE.BASE) {
@@ -411,13 +493,22 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
                 : ''))
         : '';
       
+      // v1.5.0: 準備 shadow mode 欄位
+      const evaluatedEventCount = winEvents ? winEvents.length : 0;
+      const evaluatedRuleTypes = winEvents && winEvents.length > 0
+        ? winEvents.map(e => e.ruleType).join('|')
+        : '';
+      const eventsJson = winEvents && winEvents.length > 0
+        ? JSON.stringify(winEvents)
+        : '';
+      
       spinLog.push({
         globalSpinIndex: globalSpinIndex,
         baseSpinIndex: baseSpinIndex,
         state: previousState,
         outcomeId: outcome.id,
         type: outcome.type,
-        winAmount: winAmount,
+        winAmount: winAmount,  // v1.5.0: 使用 evaluatedWinAmount（如果存在）
         triggeredFeatureId: triggeredFeatureId,
         // v1.4: Pattern Generation 資訊
         patternSource: patternResult.patternSource || 'NONE',
@@ -439,7 +530,14 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         teaseBlockedBy: visualTelemetry ? (visualTelemetry.teaseBlockedBy || 'NONE') : 'NONE',
         // v1.4.patch_tease_diag_fix: Guard Diagnostics fields（已 finalize，成功案例已清理）
         visualGuardFailDetail: visualTelemetry ? (visualTelemetry.visualGuardFailDetail || '') : '',
-        visualAttemptReasons: visualAttemptReasons  // v1.4.patch_tease_diag_fix: 已經是字串
+        visualAttemptReasons: visualAttemptReasons,  // v1.4.patch_tease_diag_fix: 已經是字串
+        // v1.5.0: Shadow Mode fields
+        expectedWinAmount: validationResult.expectedWinAmount,
+        evaluatedWinAmount: validationResult.evaluatedWinAmount,
+        evaluationMatch: validationResult.evaluationMatch,
+        evaluatedEventCount: evaluatedEventCount,
+        evaluatedRuleTypes: evaluatedRuleTypes,
+        eventsJson: eventsJson
       });
     }
 
