@@ -324,9 +324,15 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     // v1.3: 傳遞 context 給 Visual Constraint Layer
     // v1.4: 傳遞 context 給 Pattern Generator（包含 mathSeed）
     // v1.5.0: Resolver 只生成 grid，不評估中獎
+    // v1.5.0 Route A: Free Game 也使用 BASE resolver（fallback to BASE rules）
     // --------------------------------------------------------------------
     let patternResult;
-    if (currentState === STATE.BASE && baseResolver) {
+    
+    // v1.5.0 Route A: 確定有效的 game rule（FREE 使用 BASE 作為 fallback）
+    const effectiveGameRule = config.gameRules[currentState] || config.gameRules.BASE;
+    
+    // v1.5.0 Route A: 所有狀態都使用 baseResolver（如果存在）
+    if (baseResolver && effectiveGameRule) {
       // v1.3/v1.4: 建立 context（包含 spinIndex, mathSeed, outcomeId）
       // v1.4.patch: 加入 visualState（caller-owned，用於 cooldown/rate limiting）
       // Phase C: visualSeed 由 visualConstraint.js 統一推導（不在此處設定）
@@ -334,19 +340,29 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         spinIndex: globalSpinIndex,
         mathSeed: mathSeed,  // v1.4: 用於 Pattern Generator 和 Visual Seed 推導
         outcomeId: outcome.id,  // v1.4: 用於 Pattern Generator 和 Visual Seed 推導
-        visualState: visualState  // v1.4.patch: caller-owned state for visual layer
+        visualState: visualState,  // v1.4.patch: caller-owned state for visual layer
+        state: currentState  // v1.5.0 Route A: 傳遞狀態資訊（雖然 resolver 使用 BASE rules）
       };
       patternResult = baseResolver.resolve(outcome, context);
+      
+      // v1.5.0 Route A: 驗證 grid 必須有效（禁止 placeholder）
+      if (!patternResult.grid || patternResult.grid.length === 0) {
+        throw new Error(
+          `${currentState} game must produce a valid grid (outcome=${outcome.id})`
+        );
+      }
     } else {
-      // Free Game 暫時使用 placeholder（v1.2 MVP 不實作 Free Game Resolver）
-      patternResult = { grid: [], winLine: null };
+      throw new Error(
+        `Resolver not available for state=${currentState}, outcome=${outcome.id}`
+      );
     }
 
     // --------------------------------------------------------------------
     // v1.5.0: Pay Rule Evaluation (Single Evaluation Point)
+    // v1.5.0 Route A: 所有狀態都必須評估（包括 FREE）
     // --------------------------------------------------------------------
     let winEvents = [];
-    if (currentState === STATE.BASE && baseEvaluator && patternResult.grid && patternResult.grid.length > 0) {
+    if (baseEvaluator && patternResult.grid && patternResult.grid.length > 0) {
       winEvents = baseEvaluator.evaluate(patternResult.grid, {});
       
       // v1.5.0: 設定 winAmount（根據 outcome.payoutMultiplier * bet）
@@ -355,6 +371,11 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         const expectedWinAmount = Math.round(outcome.payoutMultiplier * baseBet); // credit int
         winEvents[0].winAmount = expectedWinAmount;
       }
+    } else {
+      // v1.5.0 Route A: 如果 evaluator 或 grid 無效，這是嚴重錯誤
+      throw new Error(
+        `Evaluator or grid invalid for state=${currentState}, outcome=${outcome.id}`
+      );
     }
 
     // --------------------------------------------------------------------
@@ -369,8 +390,9 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
 
     // --------------------------------------------------------------------
     // v1.5.0: Visual Constraint（在 evaluator 之後，使用 winEvents）
+    // v1.5.0 Route A: 所有狀態都必須應用 visual constraint（包括 FREE）
     // --------------------------------------------------------------------
-    if (currentState === STATE.BASE && baseResolver && baseResolver.visualEngine && patternResult.grid && patternResult.grid.length > 0) {
+    if (baseResolver && baseResolver.visualEngine && patternResult.grid && patternResult.grid.length > 0) {
       const context = {
         spinIndex: globalSpinIndex,
         mathSeed: mathSeed,
