@@ -57,6 +57,8 @@ node checklist/determinism/verify_determinism_v1.5.0.js --spins 2000 --seed 0
 
 **用途：** 進入 v1.5.1+ 開發前的架構完整性驗證
 
+**重要：** 所有 Branch A 的變更都必須符合 [`Branch_A_Invariant_Spec.md`](./branchA_gate/Branch_A_Invariant_Spec.md)
+
 **主要驗證項目：**
 1. Acceptance Verifier（結構/欄位/單點評估等）
 2. Determinism Gate（seed=12345 與 seed=0）
@@ -80,6 +82,7 @@ node checklist/branchA_gate/gate_branch_A_p0.js --spins 2000 --seed1 12345 --see
 **檔案：**
 - `gate_branch_A_p0.js` - 總入口驗證腳本
 - `Branch_A_P0_Gate_Checklist_v1.5.x.md` - 檢查清單文件
+- `Branch_A_Invariant_Spec.md` - **Invariant 規格（所有 Branch A 變更必須符合）**
 
 ---
 

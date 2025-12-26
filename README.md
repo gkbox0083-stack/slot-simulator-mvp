@@ -408,6 +408,8 @@ A: 建議在以下情況使用 `--no-visual`：
 
 **任何進入 v1.5.1+ 的 PR / commit，都必須先通過 Branch A P0 Gate。**
 
+**重要：** 所有 Branch A 的變更都必須符合 [`checklist/branchA_gate/Branch_A_Invariant_Spec.md`](./checklist/branchA_gate/Branch_A_Invariant_Spec.md)
+
 ```bash
 # 完整驗證（推薦，約 2-3 分鐘）
 node checklist/branchA_gate/gate_branch_A_p0.js --spins 2000
@@ -424,7 +426,7 @@ node checklist/branchA_gate/gate_branch_A_p0.js --spins 500
 5. Single Evaluation Point Gate（evaluator 只在 simulate.js 調用）
 6. Seed Derivation Centralization Gate（P0-7）
 
-**詳細說明：** 請參考 `checklist/README.md`
+**詳細說明：** 請參考 `checklist/README.md` 和 [`checklist/branchA_gate/Branch_A_Invariant_Spec.md`](./checklist/branchA_gate/Branch_A_Invariant_Spec.md)
 
 ---
 

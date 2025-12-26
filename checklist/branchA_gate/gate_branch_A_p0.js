@@ -4,6 +4,9 @@
  * 
  * 整合所有 P0 級別的驗證，確保進入 v1.5.1+ 開發前的架構完整性
  * 
+ * 重要：所有 Branch A 的變更都必須符合 Branch_A_Invariant_Spec.md
+ * 詳見：checklist/branchA_gate/Branch_A_Invariant_Spec.md
+ * 
  * 驗證項目：
  * 1. Acceptance verifier（結構/欄位/單點評估等）
  * 2. Determinism Gate（seed=12345 與 seed=0）

@@ -1,0 +1,409 @@
+{
+  "meta": {
+    "version": "v1.5.1",
+    "description": "Slot Game v1.5.1 - Wild (substitute-only) example config"
+  },
+  "betConfig": {
+    "baseBet": 1,
+    "betLevels": [
+      1,
+      2,
+      5,
+      10
+    ]
+  },
+  "featureConfig": {
+    "freeSpinCount": 10
+  },
+  "visualConfig": {
+    "enabled": true,
+    "safeFiller": "L1",
+    "maxRetries": 10,
+    "seedStrategy": "DERIVED",
+    "patchVersion": "v1.4.patch",
+    "nearMiss": {
+      "enabled": true,
+      "multiLineCountRange": [
+        1,
+        2
+      ]
+    },
+    "tease": {
+      "enabled": true,
+      "targetOutcomeIds": [
+        "SMALL_WIN",
+        "FREE_SMALL_WIN"
+      ],
+      "triggerChance": 0.12,
+      "chanceByOutcomeId": {
+        "SMALL_WIN": 0.08,
+        "FREE_SMALL_WIN": 0.18
+      },
+      "cooldownSpins": 6,
+      "maxTriggersPer100Spins": 12,
+      "maxAttempts": 12
+    }
+  },
+  "symbols": [
+    {
+      "id": "H1",
+      "name": "High1",
+      "type": "HIGH"
+    },
+    {
+      "id": "H2",
+      "name": "High2",
+      "type": "HIGH"
+    },
+    {
+      "id": "M1",
+      "name": "Mid1",
+      "type": "MID"
+    },
+    {
+      "id": "M2",
+      "name": "Mid2",
+      "type": "MID"
+    },
+    {
+      "id": "L1",
+      "name": "Low1",
+      "type": "LOW"
+    },
+    {
+      "id": "L2",
+      "name": "Low2",
+      "type": "LOW"
+    },
+    {
+      "id": "W",
+      "name": "Wild",
+      "type": "WILD"
+    },
+    {
+      "id": "S",
+      "name": "Scatter",
+      "type": "SCATTER"
+    }
+  ],
+  "gameRules": {
+    "BASE": {
+      "grid": {
+        "rows": 3,
+        "cols": 5
+      },
+      "winCondition": "payline",
+      "paylines": [
+        [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            0,
+            3
+          ],
+          [
+            0,
+            4
+          ]
+        ],
+        [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            1,
+            4
+          ]
+        ],
+        [
+          [
+            2,
+            0
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            2,
+            4
+          ]
+        ],
+        [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            0,
+            4
+          ]
+        ],
+        [
+          [
+            2,
+            0
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            2,
+            4
+          ]
+        ]
+      ],
+      "wildConfig": {
+        "wildSymbolId": "W",
+        "substitutableTypes": [
+          "HIGH",
+          "MID",
+          "LOW"
+        ]
+      }
+    },
+    "FREE": null
+  },
+  "outcomeTables": {
+    "BASE": {
+      "outcomes": [
+        {
+          "id": "MEGA_WIN",
+          "weight": 1,
+          "payoutMultiplier": 100,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 5,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 5,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "BIG_WIN",
+          "weight": 4,
+          "payoutMultiplier": 20,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 4,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 4,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "MEDIUM_WIN",
+          "weight": 30,
+          "payoutMultiplier": 5,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 3,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "SMALL_WIN",
+          "weight": 140,
+          "payoutMultiplier": 2,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "L1",
+            "matchCount": 3,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "L1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "FREE_GAME_TRIGGER",
+          "weight": 10,
+          "payoutMultiplier": 0,
+          "type": "FEATURE"
+        },
+        {
+          "id": "NEAR_MISS_1",
+          "weight": 70,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        },
+        {
+          "id": "NEAR_MISS_2",
+          "weight": 70,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        },
+        {
+          "id": "LOSS",
+          "weight": 675,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        }
+      ]
+    },
+    "FREE": {
+      "outcomes": [
+        {
+          "id": "FREE_MEGA_WIN",
+          "weight": 2,
+          "payoutMultiplier": 150,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 5,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 5,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "FREE_BIG_WIN",
+          "weight": 8,
+          "payoutMultiplier": 50,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 4,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 4,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "FREE_MEDIUM_WIN",
+          "weight": 30,
+          "payoutMultiplier": 15,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "H1",
+            "matchCount": 3,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "H1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "FREE_SMALL_WIN",
+          "weight": 120,
+          "payoutMultiplier": 5,
+          "type": "WIN",
+          "winConfig": {
+            "symbolId": "L1",
+            "matchCount": 3,
+            "allowWild": true
+          },
+          "winCondition": {
+            "type": "LINE",
+            "symbolId": "L1",
+            "matchCount": 3,
+            "payDirection": "LTR",
+            "eligiblePaylines": "ANY"
+          }
+        },
+        {
+          "id": "FREE_NEAR_MISS",
+          "weight": 50,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        },
+        {
+          "id": "FREE_LOSS",
+          "weight": 290,
+          "payoutMultiplier": 0,
+          "type": "LOSS"
+        }
+      ]
+    }
+  }
+}
