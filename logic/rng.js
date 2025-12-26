@@ -1,24 +1,57 @@
 /**
  * 集中化隨機數生成器（RNG）
  * v1.2.1: 獨立模組（解決循環依賴）
+ * v1.5.0 Determinism Fix: 實作 Seeded RNG
  * 
  * 原則：所有隨機行為必須通過此模組，禁止在業務邏輯中直接使用 Math.random()
  * 
- * 未來可擴展支援 Seed Injection 以實現可重現性
+ * 使用 Linear Congruential Generator (LCG) 實作 seeded RNG
+ * 公式: seed = (a * seed + c) % m
+ * 參數: a = 1664525, c = 1013904223, m = 2^32
  */
 class RNG {
   constructor(seed = null) {
-    this.seed = seed;
-    // 未來可實作 Seeded RNG
+    // Determinism Fix: 實作 seeded RNG
+    if (seed === null || seed === undefined) {
+      // 如果沒有提供 seed，使用時間戳（非 deterministic，僅用於開發）
+      this._seed = Date.now() % 2147483647;
+    } else {
+      // 將 seed 轉為整數（支援字串和數字）
+      const seedNum = typeof seed === 'string' ? this._hashString(seed) : Number(seed);
+      this._seed = Math.floor(Math.abs(seedNum)) % 2147483647;
+      if (this._seed === 0) this._seed = 1; // 避免 seed = 0
+    }
+    
+    // LCG 參數（Numerical Recipes 推薦值）
+    this._a = 1664525;
+    this._c = 1013904223;
+    this._m = 0x100000000; // 2^32
   }
 
   /**
-   * 產生 0 ~ 1 之間的隨機數
+   * 將字串轉為數字 hash（用於 derived seeds）
+   * @param {string} str - 輸入字串
+   * @returns {number} Hash 值
+   */
+  _hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash) || 1;
+  }
+
+  /**
+   * 產生 0 ~ 1 之間的隨機數（seeded）
    * @returns {number} 0 ~ 1 之間的隨機數
    */
   random() {
-    // 目前使用 Math.random()，未來可替換為 Seeded RNG
-    return Math.random();
+    // LCG: seed = (a * seed + c) % m
+    this._seed = (this._a * this._seed + this._c) % this._m;
+    // 轉為 [0, 1) 範圍
+    return this._seed / this._m;
   }
 
   /**

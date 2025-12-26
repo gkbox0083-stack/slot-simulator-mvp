@@ -190,6 +190,11 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   // Determinism: 優先使用 customSeed（來自 CLI），否則使用 config.seed，最後使用 'default'
   const mathSeed = customSeed !== null ? String(customSeed) : (config.seed || 'default');
   const rng = new RNG(mathSeed);  // Determinism: 使用 seed 初始化 RNG
+  
+  // Determinism: 記錄 active seed（僅在啟動時記錄一次）
+  if (customSeed !== null || config.seed) {
+    console.log(`🌱 Active Math Seed: ${mathSeed} (deterministic mode)`);
+  }
 
   // ========================================================================
   // v1.2: 初始化 Pattern Resolver (僅 BASE 狀態)

@@ -1,23 +1,23 @@
 const fs = require('fs');
 
 /**
- * v1.5.0 Determinism Verification Script
+ * v1.5.0 Determinism Verification Script (Upgraded)
  * 
- * 驗證相同 seed 產生相同的 outcome 序列
+ * 驗證相同 seed 產生完全相同的結果
+ * 
+ * 使用 hash 比較關鍵欄位，確保完全匹配
  */
+
+const crypto = require('crypto');
 
 const args = process.argv.slice(2);
 let spins = 2000;
-let window = 2500;
 let seed = null;
 
 // 解析參數
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--spins' && i + 1 < args.length) {
     spins = parseInt(args[i + 1], 10);
-    i++;
-  } else if (args[i] === '--window' && i + 1 < args.length) {
-    window = parseInt(args[i + 1], 10);
     i++;
   } else if (args[i] === '--seed' && i + 1 < args.length) {
     seed = parseInt(args[i + 1], 10);
@@ -27,15 +27,14 @@ for (let i = 0; i < args.length; i++) {
 
 if (seed === null) {
   console.error('❌ 錯誤: 必須指定 --seed 參數');
-  console.error('使用方式: node checklist/verify_determinism_v1.5.0.js --spins 2000 --window 2500 --seed 12345');
+  console.error('使用方式: node checklist/verify_determinism_v1.5.0.js --spins 2000 --seed 12345');
   process.exit(1);
 }
 
 console.log('='.repeat(60));
-console.log('v1.5.0 Determinism Verification');
+console.log('v1.5.0 Determinism Verification (Hash-based)');
 console.log('='.repeat(60));
 console.log(`Spins: ${spins}`);
-console.log(`Window: ${window}`);
 console.log(`Seed: ${seed}`);
 console.log('');
 
@@ -89,9 +88,9 @@ function parseCSVLine(line) {
 function readCSV(filename) {
   const content = fs.readFileSync(filename, 'utf8');
   const lines = content.split('\n').filter(line => line.trim());
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { header: [], rows: [] };
   
-  const header = lines[0].split(',');
+  const header = parseCSVLine(lines[0]);
   const rows = [];
   
   for (let i = 1; i < lines.length; i++) {
@@ -114,36 +113,64 @@ if (csv1Data.rows.length === 0 || csv2Data.rows.length === 0) {
 
 // 找到關鍵欄位索引
 const getIndex = (name, header) => header.indexOf(name);
-const outcomeIdIdx1 = getIndex('outcomeId', csv1Data.header);
-const outcomeIdIdx2 = getIndex('outcomeId', csv2Data.header);
-const winAmountIdx1 = getIndex('winAmount', csv1Data.header);
-const winAmountIdx2 = getIndex('winAmount', csv2Data.header);
+const criticalFields = ['outcomeId', 'winAmount', 'state', 'eventsJson'];
+const indices1 = {};
+const indices2 = {};
 
-if (outcomeIdIdx1 === -1 || outcomeIdIdx2 === -1) {
-  console.error('❌ CSV 缺少 outcomeId 欄位');
-  process.exit(1);
+for (const field of criticalFields) {
+  indices1[field] = getIndex(field, csv1Data.header);
+  indices2[field] = getIndex(field, csv2Data.header);
+  if (indices1[field] === -1 || indices2[field] === -1) {
+    console.error(`❌ CSV 缺少關鍵欄位: ${field}`);
+    process.exit(1);
+  }
 }
 
-// 比較 outcomeId 序列
-const compareWindow = Math.min(window, csv1Data.rows.length, csv2Data.rows.length);
+// 方法 1: 比較完整 CSV 內容 hash
+const content1 = fs.readFileSync(csv1, 'utf8');
+const content2 = fs.readFileSync(csv2, 'utf8');
+const hash1 = crypto.createHash('sha256').update(content1).digest('hex');
+const hash2 = crypto.createHash('sha256').update(content2).digest('hex');
+
+// 方法 2: 比較關鍵欄位 hash（更精確的診斷）
+function buildCriticalHash(rows, indices) {
+  const criticalData = rows.map(row => {
+    const parts = criticalFields.map(field => {
+      const idx = indices[field];
+      return idx !== -1 ? (row[idx] || '') : '';
+    });
+    return parts.join('|');
+  });
+  return crypto.createHash('sha256').update(criticalData.join('\n')).digest('hex');
+}
+
+const criticalHash1 = buildCriticalHash(csv1Data.rows, indices1);
+const criticalHash2 = buildCriticalHash(csv2Data.rows, indices2);
+
+// 方法 3: 逐行比較（用於診斷）
 let mismatchCount = 0;
 const mismatches = [];
+const minRows = Math.min(csv1Data.rows.length, csv2Data.rows.length);
 
-for (let i = 0; i < compareWindow; i++) {
-  const outcomeId1 = csv1Data.rows[i][outcomeIdIdx1];
-  const outcomeId2 = csv2Data.rows[i][outcomeIdIdx2];
-  const winAmount1 = csv1Data.rows[i][winAmountIdx1];
-  const winAmount2 = csv2Data.rows[i][winAmountIdx2];
+for (let i = 0; i < minRows; i++) {
+  let rowMismatch = false;
+  const rowDetails = {};
   
-  if (outcomeId1 !== outcomeId2 || winAmount1 !== winAmount2) {
+  for (const field of criticalFields) {
+    const val1 = csv1Data.rows[i][indices1[field]];
+    const val2 = csv2Data.rows[i][indices2[field]];
+    if (val1 !== val2) {
+      rowMismatch = true;
+      rowDetails[field] = { val1, val2 };
+    }
+  }
+  
+  if (rowMismatch) {
     mismatchCount++;
     if (mismatches.length < 10) {
       mismatches.push({
         index: i + 1,
-        outcomeId1,
-        outcomeId2,
-        winAmount1,
-        winAmount2
+        details: rowDetails
       });
     }
   }
@@ -152,18 +179,42 @@ for (let i = 0; i < compareWindow; i++) {
 console.log('='.repeat(60));
 console.log('比較結果');
 console.log('='.repeat(60));
-console.log(`比較範圍: 前 ${compareWindow} 筆資料`);
-console.log(`不匹配數量: ${mismatchCount}`);
+console.log(`總行數: CSV1=${csv1Data.rows.length}, CSV2=${csv2Data.rows.length}`);
+console.log('');
+console.log('完整 CSV 內容 Hash:');
+console.log(`  CSV1: ${hash1.substring(0, 16)}...`);
+console.log(`  CSV2: ${hash2.substring(0, 16)}...`);
+console.log('');
+console.log('關鍵欄位 Hash (outcomeId, winAmount, state, eventsJson):');
+console.log(`  CSV1: ${criticalHash1.substring(0, 16)}...`);
+console.log(`  CSV2: ${criticalHash2.substring(0, 16)}...`);
+console.log('');
 
-if (mismatchCount === 0) {
-  console.log('✅ 完全匹配：相同 seed 產生相同的 outcome 序列');
+const fullMatch = (hash1 === hash2);
+const criticalMatch = (criticalHash1 === criticalHash2);
+
+if (fullMatch) {
+  console.log('✅ 完整 CSV 內容完全匹配');
 } else {
-  console.log(`❌ 有 ${mismatchCount} 個不匹配`);
-  console.log('');
-  console.log('前 10 個不匹配:');
-  mismatches.forEach(m => {
-    console.log(`  第 ${m.index} 筆: outcomeId ${m.outcomeId1} vs ${m.outcomeId2}, winAmount ${m.winAmount1} vs ${m.winAmount2}`);
-  });
+  console.log('❌ 完整 CSV 內容不匹配');
+}
+
+if (criticalMatch) {
+  console.log('✅ 關鍵欄位完全匹配');
+} else {
+  console.log('❌ 關鍵欄位不匹配');
+  console.log(`   不匹配行數: ${mismatchCount} / ${minRows}`);
+  
+  if (mismatches.length > 0) {
+    console.log('');
+    console.log('前 10 個不匹配行:');
+    mismatches.forEach(m => {
+      console.log(`  第 ${m.index} 行:`);
+      for (const [field, { val1, val2 }] of Object.entries(m.details)) {
+        console.log(`    ${field}: "${val1}" vs "${val2}"`);
+      }
+    });
+  }
 }
 
 console.log('');
@@ -176,10 +227,10 @@ try {
   // 忽略清理錯誤
 }
 
-if (mismatchCount === 0) {
-  console.log('✅ 確定性測試通過');
+if (fullMatch && criticalMatch) {
+  console.log('✅ 確定性測試通過：完全匹配');
   process.exit(0);
 } else {
-  console.log('❌ 確定性測試失敗');
+  console.log('❌ 確定性測試失敗：存在不匹配');
   process.exit(1);
 }
