@@ -1,31 +1,36 @@
 /**
  * 集中化隨機數生成器（RNG）
  * v1.2.1: 獨立模組（解決循環依賴）
- * v1.5.0 Determinism Fix: 實作 Seeded RNG
+ * v1.5.0 Determinism Fix: 實作 Dual-Mode RNG
  * 
  * 原則：所有隨機行為必須通過此模組，禁止在業務邏輯中直接使用 Math.random()
  * 
- * 使用 Linear Congruential Generator (LCG) 實作 seeded RNG
- * 公式: seed = (a * seed + c) % m
- * 參數: a = 1664525, c = 1013904223, m = 2^32
+ * Dual-Mode:
+ * - Legacy mode (seed === null): 使用 Math.random() 保持向後相容
+ * - Seeded mode (seed provided): 使用 Linear Congruential Generator (LCG)
+ *   公式: seed = (a * seed + c) % m
+ *   參數: a = 1664525, c = 1013904223, m = 2^32
  */
 class RNG {
   constructor(seed = null) {
-    // Determinism Fix: 實作 seeded RNG
+    // v1.5.0 Follow-up: Dual-Mode RNG
     if (seed === null || seed === undefined) {
-      // 如果沒有提供 seed，使用時間戳（非 deterministic，僅用於開發）
-      this._seed = Date.now() % 2147483647;
+      // Legacy mode: 使用 Math.random() 保持向後相容
+      this._mode = 'legacy';
+      this._seed = null; // 不需要 seed
     } else {
+      // Seeded mode: 使用 LCG
+      this._mode = 'seeded';
       // 將 seed 轉為整數（支援字串和數字）
       const seedNum = typeof seed === 'string' ? this._hashString(seed) : Number(seed);
       this._seed = Math.floor(Math.abs(seedNum)) % 2147483647;
       if (this._seed === 0) this._seed = 1; // 避免 seed = 0
+      
+      // LCG 參數（Numerical Recipes 推薦值）
+      this._a = 1664525;
+      this._c = 1013904223;
+      this._m = 0x100000000; // 2^32
     }
-    
-    // LCG 參數（Numerical Recipes 推薦值）
-    this._a = 1664525;
-    this._c = 1013904223;
-    this._m = 0x100000000; // 2^32
   }
 
   /**
@@ -44,14 +49,20 @@ class RNG {
   }
 
   /**
-   * 產生 0 ~ 1 之間的隨機數（seeded）
+   * 產生 0 ~ 1 之間的隨機數（[0, 1)，不包含 1）
    * @returns {number} 0 ~ 1 之間的隨機數
    */
   random() {
-    // LCG: seed = (a * seed + c) % m
-    this._seed = (this._a * this._seed + this._c) % this._m;
-    // 轉為 [0, 1) 範圍
-    return this._seed / this._m;
+    if (this._mode === 'legacy') {
+      // Legacy mode: 使用 Math.random() 保持向後相容
+      return Math.random();
+    } else {
+      // Seeded mode: 使用 LCG
+      // LCG: seed = (a * seed + c) % m
+      this._seed = (this._a * this._seed + this._c) % this._m;
+      // 轉為 [0, 1) 範圍
+      return this._seed / this._m;
+    }
   }
 
   /**

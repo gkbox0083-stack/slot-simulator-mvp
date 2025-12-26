@@ -125,9 +125,12 @@ class VisualConstraintEngine {
     }
 
     // Phase C: Derived Seed Unification
-    // 建立獨立的 Visual RNG（使用 derived visual seed，包含 patchVersion）
-    const visualSeed = this._deriveVisualSeed(safeContext);
-    telemetry.visualSeed = String(visualSeed);
+    // v1.5.0 Follow-up: 如果 mathSeed 為 null（legacy mode），使用 null RNG
+    // 否則推導 derived visual seed（deterministic mode）
+    const visualSeed = safeContext.mathSeed !== null && safeContext.mathSeed !== undefined
+      ? this._deriveVisualSeed(safeContext)
+      : null;
+    telemetry.visualSeed = visualSeed !== null ? String(visualSeed) : '';
     const visualRng = new RNG(visualSeed);
 
     // 深拷貝 grid（避免修改原始 grid）

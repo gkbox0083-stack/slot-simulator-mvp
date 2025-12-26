@@ -37,17 +37,21 @@ class PatternGenerator {
    */
   generate(winCondition, context) {
     // 驗證 context
-    if (!context || context.spinIndex === undefined || !context.mathSeed || !context.outcomeId) {
-      throw new Error('context 必須包含 spinIndex, mathSeed, outcomeId');
+    if (!context || context.spinIndex === undefined || context.outcomeId === undefined) {
+      throw new Error('context 必須包含 spinIndex, outcomeId');
     }
 
+    // v1.5.0 Follow-up: mathSeed 可以是 null（legacy mode）
     // 驗證 winCondition
     if (!winCondition || !winCondition.type) {
       throw new Error('winCondition 必須包含 type');
     }
 
-    // 建立獨立的 Pattern RNG（使用 derived seed）
-    const derivedSeed = this._derivePatternSeed(context);
+    // v1.5.0 Follow-up: 如果 mathSeed 為 null（legacy mode），使用 null RNG
+    // 否則推導 derived seed（deterministic mode）
+    const derivedSeed = context.mathSeed !== null && context.mathSeed !== undefined
+      ? this._derivePatternSeed(context)
+      : null;
     const localRng = new RNG(derivedSeed);
 
     // 根據 winCondition 類型生成 anchors

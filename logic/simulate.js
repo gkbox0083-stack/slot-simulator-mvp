@@ -185,15 +185,17 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   // ========================================================================
   // 2. 初始化 RNG（集中化隨機數生成）
   // v1.4: 追蹤 mathSeed 用於 Pattern Generator
-  // Determinism: 支援 customSeed 參數（優先於 config.seed）
+  // v1.5.0 Follow-up: Dual-Mode RNG (legacy mode by default)
   // ========================================================================
-  // Determinism: 優先使用 customSeed（來自 CLI），否則使用 config.seed，最後使用 'default'
-  const mathSeed = customSeed !== null ? String(customSeed) : (config.seed || 'default');
-  const rng = new RNG(mathSeed);  // Determinism: 使用 seed 初始化 RNG
+  // v1.5.0 Follow-up: 優先使用 customSeed（來自 CLI），否則使用 config.seed，最後使用 null（legacy mode）
+  const mathSeed = customSeed !== null ? String(customSeed) : (config.seed || null);
+  const rng = new RNG(mathSeed);  // Dual-mode: null = legacy, non-null = seeded
   
-  // Determinism: 記錄 active seed（僅在啟動時記錄一次）
-  if (customSeed !== null || config.seed) {
+  // v1.5.0 Follow-up: 記錄 active seed（僅在啟動時記錄一次）
+  if (mathSeed !== null) {
     console.log(`🌱 Active Math Seed: ${mathSeed} (deterministic mode)`);
+  } else {
+    console.log(`🔀 Active Math Seed: (none) (legacy random mode)`);
   }
 
   // ========================================================================
