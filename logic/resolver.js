@@ -49,12 +49,13 @@ class PatternResolver {
     this.cols = gameRule.grid.cols;
     
     // 背景填充權重（優先 LOW, MID）
+    // v1.5.2: SCATTER 權重設為 0（base generator 不應生成 scatter，由 scatter layer 負責）
     this.fillerWeights = {
       'LOW': 50,
       'MID': 30,
       'HIGH': 15,
       'WILD': 4,
-      'SCATTER': 1
+      'SCATTER': 0  // v1.5.2: 禁止 base generator 生成 scatter
     };
   }
 
@@ -158,6 +159,30 @@ class PatternResolver {
     if (generatedInfo) {
       patternResult.winConditionType = generatedInfo.winConditionType;
       patternResult.anchorsCount = generatedInfo.anchors ? generatedInfo.anchors.length : 0;
+    }
+
+    // v1.5.2: 套用 Scatter Layer（在 base grid 生成後）
+    // 注意：scatterConfig 需要從外部傳入（通過 context 或 constructor）
+    if (context && context.scatterConfig) {
+      const scatterResult = this._applyScatterLayer(
+        patternResult.grid,
+        outcome,
+        context.state || 'BASE',
+        context.scatterConfig,
+        context.mathSeed,
+        context.spinIndex,
+        context.outcomeId
+      );
+      patternResult.grid = scatterResult.grid;
+      patternResult.scatterTelemetry = scatterResult.telemetry;
+    } else {
+      // 如果沒有 scatterConfig，設置預設 telemetry
+      patternResult.scatterTelemetry = {
+        count: 0,
+        guardApplied: false,
+        attemptsUsed: 0,
+        fallbackUsed: false
+      };
     }
 
     // v1.5.0: Visual Constraint 已移至 simulate.js（在 evaluator 之後）
@@ -451,6 +476,233 @@ class PatternResolver {
     }
     
     return true;
+  }
+
+  /**
+   * v1.5.2: 套用 Scatter Layer（獨立 layer，不重構 pipeline）
+   * 
+   * 規則：
+   * - Trigger（BASE + outcome=FEATURE/FREE_GAME_TRIGGER）：scatterCount 必須「剛好 == minCount」
+   * - Non-trigger（任何非觸發 outcome）：scatterCount 必須「固定 == 0」
+   * - 使用 seeded RNG 選位置覆寫
+   * - 有限重試（例如 20 次）
+   * - STRICT 驗證：最終 scatterCount 必須符合目標
+   * 
+   * @param {Array<Array<string>>} grid - Base grid（已生成）
+   * @param {Object} outcome - Outcome 物件
+   * @param {string} state - 當前狀態（"BASE" | "FREE"）
+   * @param {Object} scatterConfig - Scatter 配置
+   * @param {string} mathSeed - Math seed（用於派生 scatter RNG）
+   * @param {number} spinIndex - Spin 索引
+   * @param {string} outcomeId - Outcome ID
+   * @returns {Object} { grid, telemetry }
+   */
+  _applyScatterLayer(grid, outcome, state, scatterConfig, mathSeed, spinIndex, outcomeId) {
+    const scatterSymbolId = scatterConfig.scatterSymbolId;
+    const minCount = scatterConfig.trigger.minCount;
+    const triggerStates = scatterConfig.trigger.states || [];
+    const triggerFeatureId = scatterConfig.trigger.featureId;
+    const maxRetries = 20;  // 固定重試次數
+    
+    // 判斷是否為 trigger 情況
+    const isTrigger = state === 'BASE' 
+      && outcome.type === 'FEATURE' 
+      && outcome.id === triggerFeatureId
+      && triggerStates.includes('BASE');
+    
+    // 目標 scatterCount
+    const targetCount = isTrigger ? minCount : 0;
+    
+    // 派生 scatter RNG（使用 mathSeed, spinIndex, outcomeId）
+    const scatterSeed = RNG.deriveSubSeed('SCATTER', {
+      mathSeed: mathSeed || 'default',
+      spinIndex: spinIndex || 0,
+      outcomeId: outcomeId || outcome.id,
+      patchVersion: 'v1.5.2'
+    });
+    const scatterRng = new RNG(scatterSeed);
+    
+    // 計算當前 scatterCount
+    const countScatter = (g) => {
+      let count = 0;
+      for (let row = 0; row < g.length; row++) {
+        for (let col = 0; col < g[row].length; col++) {
+          if (g[row][col] === scatterSymbolId) {
+            count++;
+          }
+        }
+      }
+      return count;
+    };
+    
+    // 獲取所有非 scatter 符號（用於替換）
+    const nonScatterSymbols = this.symbols.filter(s => s.id !== scatterSymbolId);
+    
+    let attemptsUsed = 0;
+    let fallbackUsed = false;
+    let guardApplied = false;
+    
+    // 複製 grid（避免修改原始 grid）
+    let processedGrid = grid.map(row => [...row]);
+    
+    // 重試邏輯
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      attemptsUsed = attempt + 1;
+      
+      // 計算當前 scatterCount
+      const currentCount = countScatter(processedGrid);
+      
+      if (currentCount === targetCount) {
+        // 已達成目標
+        guardApplied = (attempt > 0);  // 如果有重試，表示應用了 guard
+        break;
+      }
+      
+      // 需要調整 scatterCount
+      guardApplied = true;
+      
+      if (isTrigger && currentCount < targetCount) {
+        // Trigger 情況：需要增加 scatter
+        const needed = targetCount - currentCount;
+        const availablePositions = [];
+        
+        // 收集所有非 scatter 位置
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] !== scatterSymbolId) {
+              availablePositions.push([row, col]);
+            }
+          }
+        }
+        
+        // 隨機選擇位置放置 scatter
+        if (availablePositions.length >= needed) {
+          // 隨機選擇 N 個不重複的位置
+          const selectedPositions = [];
+          const remainingPositions = [...availablePositions];
+          for (let i = 0; i < needed && remainingPositions.length > 0; i++) {
+            const selected = scatterRng.selectFromArray(remainingPositions);
+            selectedPositions.push(selected);
+            const index = remainingPositions.indexOf(selected);
+            remainingPositions.splice(index, 1);
+          }
+          selectedPositions.forEach(([row, col]) => {
+            processedGrid[row][col] = scatterSymbolId;
+          });
+        }
+      } else if (!isTrigger && currentCount > 0) {
+        // Non-trigger 情況：需要清除所有 scatter
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] === scatterSymbolId) {
+              // 替換為非 scatter 符號
+              const replacement = scatterRng.selectFromArray(nonScatterSymbols);
+              processedGrid[row][col] = replacement.id;
+            }
+          }
+        }
+      } else if (isTrigger && currentCount > targetCount) {
+        // Trigger 情況：scatter 過多，需要減少
+        const excess = currentCount - targetCount;
+        const scatterPositions = [];
+        
+        // 收集所有 scatter 位置
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] === scatterSymbolId) {
+              scatterPositions.push([row, col]);
+            }
+          }
+        }
+        
+        // 隨機選擇位置移除 scatter
+        if (scatterPositions.length >= excess) {
+          // 隨機選擇 N 個不重複的位置
+          const selectedPositions = [];
+          const remainingPositions = [...scatterPositions];
+          for (let i = 0; i < excess && remainingPositions.length > 0; i++) {
+            const selected = scatterRng.selectFromArray(remainingPositions);
+            selectedPositions.push(selected);
+            const index = remainingPositions.indexOf(selected);
+            remainingPositions.splice(index, 1);
+          }
+          selectedPositions.forEach(([row, col]) => {
+            const replacement = scatterRng.selectFromArray(nonScatterSymbols);
+            processedGrid[row][col] = replacement.id;
+          });
+        }
+      }
+      
+      // 檢查是否達成目標
+      const newCount = countScatter(processedGrid);
+      if (newCount === targetCount) {
+        break;
+      }
+    }
+    
+    // STRICT 驗證
+    const finalCount = countScatter(processedGrid);
+    if (finalCount !== targetCount) {
+      // 如果重試失敗，使用 fallback
+      fallbackUsed = true;
+      
+      // Fallback：強制達成目標（優先 Truth Source）
+      if (isTrigger && finalCount < targetCount) {
+        // 強制放置 scatter（即使可能影響其他邏輯）
+        const needed = targetCount - finalCount;
+        const availablePositions = [];
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] !== scatterSymbolId) {
+              availablePositions.push([row, col]);
+            }
+          }
+        }
+        if (availablePositions.length >= needed) {
+          // 隨機選擇 N 個不重複的位置
+          const selectedPositions = [];
+          const remainingPositions = [...availablePositions];
+          for (let i = 0; i < needed && remainingPositions.length > 0; i++) {
+            const selected = scatterRng.selectFromArray(remainingPositions);
+            selectedPositions.push(selected);
+            const index = remainingPositions.indexOf(selected);
+            remainingPositions.splice(index, 1);
+          }
+          selectedPositions.forEach(([row, col]) => {
+            processedGrid[row][col] = scatterSymbolId;
+          });
+        }
+      } else if (!isTrigger && finalCount > 0) {
+        // 強制清除所有 scatter
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] === scatterSymbolId) {
+              const replacement = scatterRng.selectFromArray(nonScatterSymbols);
+              processedGrid[row][col] = replacement.id;
+            }
+          }
+        }
+      }
+      
+      // 最終驗證（如果仍然失敗，throw）
+      const finalCountAfterFallback = countScatter(processedGrid);
+      if (finalCountAfterFallback !== targetCount) {
+        throw new Error(
+          `v1.5.2 STRICT: Scatter count mismatch: expected=${targetCount}, actual=${finalCountAfterFallback}, ` +
+          `state=${state}, outcome=${outcome.id}, seed=${mathSeed}, spin=${spinIndex}`
+        );
+      }
+    }
+    
+    return {
+      grid: processedGrid,
+      telemetry: {
+        count: countScatter(processedGrid),
+        guardApplied: guardApplied,
+        attemptsUsed: attemptsUsed,
+        fallbackUsed: fallbackUsed
+      }
+    };
   }
 }
 

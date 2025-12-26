@@ -271,8 +271,8 @@ function csvEscape(field) {
 }
 
 function generateCSV(spinLog) {
-  // v1.5.0: CSV Header（包含所有 telemetry 欄位 + shadow mode 欄位）
-  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount,visualRequestedType,visualAppliedType,visualApplied,visualPaylinesChosen,visualAttemptsUsed,visualGuardFailReason,visualSeed,teaseEligible,teaseChanceUsed,teaseRoll,teaseBlockedBy,visualGuardFailDetail,visualAttemptReasons,expectedWinAmount,evaluatedWinAmount,evaluationMatch,evaluatedEventCount,evaluatedRuleTypes,eventsJson';
+  // v1.5.2: CSV Header（包含所有 telemetry 欄位 + shadow mode 欄位 + FSM/Scatter 欄位）
+  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount,visualRequestedType,visualAppliedType,visualApplied,visualPaylinesChosen,visualAttemptsUsed,visualGuardFailReason,visualSeed,teaseEligible,teaseChanceUsed,teaseRoll,teaseBlockedBy,visualGuardFailDetail,visualAttemptReasons,expectedWinAmount,evaluatedWinAmount,evaluationMatch,evaluatedEventCount,evaluatedRuleTypes,eventsJson,stateBefore,stateAfter,freeRemainingAfter,scatterCount,scatterGuardApplied,scatterAttemptsUsed,scatterFallbackUsed';
   
   // CSV Rows
   const rows = spinLog.map(log => {
@@ -320,7 +320,16 @@ function generateCSV(spinLog) {
       csvEscape(log.evaluationMatch !== undefined ? (log.evaluationMatch ? 'true' : 'false') : ''),
       csvEscape(log.evaluatedEventCount !== undefined ? log.evaluatedEventCount : 0),
       csvEscape(log.evaluatedRuleTypes || ''),
-      csvEscape(log.eventsJson || '')  // JSON 字串，需要 quoting
+      csvEscape(log.eventsJson || ''),  // JSON 字串，需要 quoting
+      // v1.5.2: FSM State Telemetry
+      csvEscape(log.stateBefore || ''),
+      csvEscape(log.stateAfter || ''),
+      csvEscape(log.freeRemainingAfter !== undefined ? log.freeRemainingAfter : ''),
+      // v1.5.2: Scatter Telemetry
+      csvEscape(log.scatterCount !== undefined ? log.scatterCount : 0),
+      csvEscape(log.scatterGuardApplied !== undefined ? (log.scatterGuardApplied ? 'true' : 'false') : 'false'),
+      csvEscape(log.scatterAttemptsUsed !== undefined ? log.scatterAttemptsUsed : 0),
+      csvEscape(log.scatterFallbackUsed !== undefined ? (log.scatterFallbackUsed ? 'true' : 'false') : 'false')
     ];
     
     return row.join(',');

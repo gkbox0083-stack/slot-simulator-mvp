@@ -309,6 +309,23 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     globalSpinIndex++;
     
     // --------------------------------------------------------------------
+    // v1.5.2: STRICT Guards（每 spin 開始）
+    // --------------------------------------------------------------------
+    // Guard 1: FREE 狀態必須有剩餘次數
+    if (currentState === STATE.FREE && freeSpinsRemaining <= 0) {
+      throw new Error(`v1.5.2 STRICT: Invalid state: FREE with freeSpinsRemaining=${freeSpinsRemaining}`);
+    }
+    
+    // Guard 2: BASE 狀態不得有剩餘次數
+    if (currentState === STATE.BASE && freeSpinsRemaining > 0) {
+      throw new Error(`v1.5.2 STRICT: Invalid state: BASE with freeSpinsRemaining=${freeSpinsRemaining}`);
+    }
+    
+    // 記錄 spin 前的狀態（用於 telemetry）
+    const stateBefore = currentState;
+    const freeRemainingBefore = freeSpinsRemaining;
+    
+    // --------------------------------------------------------------------
     // 6.1 Bet Logic & Counter Updates (The "Check-In" Phase)
     // Core Spec v1.0.1: 必須在狀態切換邏輯發生「之前」進行計數
     // 確保最後一次 Spin 被正確記錄
@@ -324,9 +341,27 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
 
     // --------------------------------------------------------------------
     // 6.2 Outcome Selection (P1: Outcome-based, via Centralized RNG)
+    // v1.5.2: STRICT 檢查 FREE table 不得含 FEATURE
     // --------------------------------------------------------------------
     const outcomeTable = config.outcomeTables[currentState];
     const outcome = selectOutcome(rng, outcomeTable, currentState);
+    
+    // v1.5.2: STRICT 檢查 FREE table 不得含 FEATURE（禁止 retrigger）
+    if (currentState === STATE.FREE && outcome.type === 'FEATURE') {
+      throw new Error(
+        `v1.5.2 STRICT: outcomeTables.FREE 不得包含 FEATURE 類型的 Outcome "${outcome.id}"（禁止 retrigger）`
+      );
+    }
+    
+    // v1.5.2: STRICT 檢查 trigger outcome 必須匹配 scatterConfig.trigger.featureId
+    if (currentState === STATE.BASE && outcome.type === 'FEATURE' && config.scatterConfig && config.scatterConfig.trigger) {
+      const triggerFeatureId = config.scatterConfig.trigger.featureId;
+      if (outcome.id !== triggerFeatureId) {
+        throw new Error(
+          `v1.5.2 STRICT: FEATURE 類型的 Outcome "${outcome.id}" 不匹配 scatterConfig.trigger.featureId (${triggerFeatureId})`
+        );
+      }
+    }
 
     // --------------------------------------------------------------------
     // 6.3 Pattern Resolution (v1.2: 使用 Pattern Resolver)
@@ -350,7 +385,8 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         mathSeed: mathSeed,  // v1.4: 用於 Pattern Generator 和 Visual Seed 推導
         outcomeId: outcome.id,  // v1.4: 用於 Pattern Generator 和 Visual Seed 推導
         visualState: visualState,  // v1.4.patch: caller-owned state for visual layer
-        state: currentState  // v1.5.0 Route A: 傳遞狀態資訊（雖然 resolver 使用 BASE rules）
+        state: currentState,  // v1.5.0 Route A: 傳遞狀態資訊（雖然 resolver 使用 BASE rules）
+        scatterConfig: config.scatterConfig || null  // v1.5.2: 傳遞 scatterConfig 給 resolver
       };
       patternResult = baseResolver.resolve(outcome, context);
       
@@ -429,20 +465,27 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     const previousState = currentState;  // 記錄 Spin 時的狀態（用於統計）
     let justTriggered = false;  // 標記是否剛觸發 Free Game
 
-    // Transition Rule: BASE -> FREE (當 Outcome Type 為 FEATURE 時觸發)
+    // v1.5.2: Transition Rule: BASE -> FREE (當 Outcome Type 為 FEATURE 且匹配 scatterConfig.trigger.featureId 時觸發)
     if (currentState === STATE.BASE && outcome.type === 'FEATURE') {
-      currentState = STATE.FREE;
-      freeSpinsRemaining = config.featureConfig.freeSpinCount;  // 設定為 10
-      result.triggerCount++;
-      stateChanged = true;
-      justTriggered = true;  // 標記剛觸發，當次迴圈不得再進行 decrement
-      stateTransitions.push({
-        baseSpin: baseSpins,
-        from: previousState,
-        to: currentState,
-        trigger: outcome.id,
-        freeSpinsRemaining: freeSpinsRemaining
-      });
+      // v1.5.2: 檢查是否匹配 scatterConfig.trigger.featureId（已在 outcome 選擇時檢查，這裡再次確認）
+      const shouldTrigger = config.scatterConfig && config.scatterConfig.trigger
+        ? outcome.id === config.scatterConfig.trigger.featureId
+        : true;  // 如果沒有 scatterConfig，保持原有行為
+      
+      if (shouldTrigger) {
+        currentState = STATE.FREE;
+        freeSpinsRemaining = config.featureConfig.freeSpinCount;  // 設定為 10
+        result.triggerCount++;
+        stateChanged = true;
+        justTriggered = true;  // 標記剛觸發，當次迴圈不得再進行 decrement
+        stateTransitions.push({
+          baseSpin: baseSpins,
+          from: previousState,
+          to: currentState,
+          trigger: outcome.id,
+          freeSpinsRemaining: freeSpinsRemaining
+        });
+      }
     }
 
     // Transition Rule: FREE -> BASE (當 freeSpinsRemaining 歸零時觸發)
@@ -495,6 +538,22 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
       result.freeOutcomeDistribution[outcome.id].count++;
     }
 
+    // v1.5.2: 記錄 spin 後的狀態（用於 telemetry）
+    const stateAfter = currentState;
+    const freeRemainingAfter = freeSpinsRemaining;
+    
+    // v1.5.2: 從 scatter layer 獲取 telemetry
+    const scatterTelemetry = patternResult.scatterTelemetry || {
+      count: 0,
+      guardApplied: false,
+      attemptsUsed: 0,
+      fallbackUsed: false
+    };
+    const scatterCount = scatterTelemetry.count;
+    const scatterGuardApplied = scatterTelemetry.guardApplied;
+    const scatterAttemptsUsed = scatterTelemetry.attemptsUsed;
+    const scatterFallbackUsed = scatterTelemetry.fallbackUsed;
+    
     // v1.1: Spin Logging (CSV Data Source)
     if (spinLog) {
       const baseSpinIndex = previousState === STATE.BASE 
@@ -568,7 +627,16 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         evaluationMatch: validationResult.evaluationMatch,
         evaluatedEventCount: evaluatedEventCount,
         evaluatedRuleTypes: evaluatedRuleTypes,
-        eventsJson: eventsJson
+        eventsJson: eventsJson,
+        // v1.5.2: FSM State Telemetry
+        stateBefore: stateBefore,
+        stateAfter: stateAfter,
+        freeRemainingAfter: freeRemainingAfter,
+        // v1.5.2: Scatter Telemetry（預留，Step 4 會更新）
+        scatterCount: scatterCount,
+        scatterGuardApplied: scatterGuardApplied,
+        scatterAttemptsUsed: scatterAttemptsUsed,
+        scatterFallbackUsed: scatterFallbackUsed
       });
     }
 

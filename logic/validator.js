@@ -85,6 +85,7 @@ function validateConfig(configPath) {
 
   // ========================================================================
   // v1.2: [ERROR] 檢查 gameRules 結構
+  // v1.5.2: [ERROR] 檢查 gameRules.FREE（必須存在）
   // ========================================================================
   if (!config.gameRules) {
     result.addError('缺少必要欄位: gameRules');
@@ -115,6 +116,25 @@ function validateConfig(configPath) {
             });
           }
         });
+      }
+    }
+    
+    // v1.5.2: [ERROR] 檢查 gameRules.FREE（必須存在，不可為 null）
+    if (config.fsmConfig && config.fsmConfig.states && config.fsmConfig.states.includes('FREE')) {
+      if (!config.gameRules.FREE) {
+        result.addError('v1.5.2: fsmConfig 包含 FREE 時，gameRules.FREE 必須存在（不可為 null）');
+      } else {
+        const freeGameRule = config.gameRules.FREE;
+        
+        // 檢查 grid 定義
+        if (!freeGameRule.grid || typeof freeGameRule.grid.rows !== 'number' || typeof freeGameRule.grid.cols !== 'number') {
+          result.addError('gameRules.FREE.grid 必須包含 rows 和 cols（數字）');
+        }
+        
+        // 檢查 paylines 定義
+        if (!Array.isArray(freeGameRule.paylines) || freeGameRule.paylines.length === 0) {
+          result.addError('gameRules.FREE.paylines 必須為非空陣列');
+        }
       }
     }
   }
@@ -153,6 +173,24 @@ function validateConfig(configPath) {
         }
       }
       // LOSS/FEATURE 類型不需要 pattern，不檢查
+
+      // v1.5.2: [ERROR] 檢查 FREE table 不得含 FEATURE（禁止 retrigger）
+      if (state === 'FREE' && outcome.type === 'FEATURE') {
+        result.addError(`v1.5.2: outcomeTables.FREE 不得包含 FEATURE 類型的 Outcome "${outcome.id}"（禁止 retrigger）`);
+      }
+      
+      // v1.5.2: [ERROR] 檢查 trigger outcome 不得是 WIN_AND_FEATURE
+      if (outcome.type === 'FEATURE' && outcome.payoutMultiplier > 0) {
+        result.addError(`v1.5.2: FEATURE 類型的 Outcome "${outcome.id}" 的 payoutMultiplier 必須為 0（禁止 WIN_AND_FEATURE）`);
+      }
+      
+      // v1.5.2: [WARNING] 檢查 trigger outcome 必須匹配 scatterConfig.trigger.featureId
+      if (outcome.type === 'FEATURE' && config.scatterConfig && config.scatterConfig.trigger) {
+        const triggerFeatureId = config.scatterConfig.trigger.featureId;
+        if (outcome.id !== triggerFeatureId) {
+          result.addWarning(`v1.5.2: FEATURE 類型的 Outcome "${outcome.id}" 不匹配 scatterConfig.trigger.featureId (${triggerFeatureId})，可能無法觸發`);
+        }
+      }
 
       // v1.4: 驗證 winCondition 結構
       if (hasWinCondition) {
@@ -266,6 +304,58 @@ function validateConfig(configPath) {
   }
 
   // v1.2: 移除舊的 patterns 檢查（已改用 winConfig）
+
+  // ========================================================================
+  // v1.5.2: [ERROR] 檢查 scatterConfig 和 fsmConfig 結構
+  // ========================================================================
+  if (config.scatterConfig) {
+    if (!config.scatterConfig.scatterSymbolId) {
+      result.addError('scatterConfig.scatterSymbolId 必須存在');
+    } else {
+      // 檢查 scatterSymbolId 是否存在於 symbols 陣列中
+      const symbolIds = (config.symbols || []).map(s => s.id);
+      if (!symbolIds.includes(config.scatterConfig.scatterSymbolId)) {
+        result.addError(`scatterConfig.scatterSymbolId ("${config.scatterConfig.scatterSymbolId}") 不存在於 symbols 陣列中`);
+      }
+    }
+    
+    if (!config.scatterConfig.trigger) {
+      result.addError('scatterConfig.trigger 必須存在');
+    } else {
+      if (typeof config.scatterConfig.trigger.minCount !== 'number' || config.scatterConfig.trigger.minCount < 2) {
+        result.addError('scatterConfig.trigger.minCount 必須為數字且 >= 2');
+      }
+      if (!Array.isArray(config.scatterConfig.trigger.states) || config.scatterConfig.trigger.states.length === 0) {
+        result.addError('scatterConfig.trigger.states 必須為非空陣列');
+      }
+      if (!config.scatterConfig.trigger.featureId) {
+        result.addError('scatterConfig.trigger.featureId 必須存在');
+      }
+    }
+    
+    if (!config.scatterConfig.placement) {
+      result.addError('scatterConfig.placement 必須存在');
+    } else {
+      if (config.scatterConfig.placement.mode !== 'RANDOM_ANYWHERE') {
+        result.addWarning('v1.5.2 僅支援 placement.mode = "RANDOM_ANYWHERE"');
+      }
+      if (typeof config.scatterConfig.placement.maxCount !== 'number' || config.scatterConfig.placement.maxCount < 1) {
+        result.addError('scatterConfig.placement.maxCount 必須為正整數');
+      }
+    }
+  }
+  
+  if (config.fsmConfig) {
+    if (!config.fsmConfig.initialState) {
+      result.addError('fsmConfig.initialState 必須存在');
+    }
+    if (!Array.isArray(config.fsmConfig.states) || config.fsmConfig.states.length === 0) {
+      result.addError('fsmConfig.states 必須為非空陣列');
+    }
+    if (!Array.isArray(config.fsmConfig.transitions) || config.fsmConfig.transitions.length === 0) {
+      result.addError('fsmConfig.transitions 必須為非空陣列');
+    }
+  }
 
   // ========================================================================
   // v1.3: [WARNING] 檢查 visualConfig 結構（可選）
