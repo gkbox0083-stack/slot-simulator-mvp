@@ -1,211 +1,145 @@
-# Cursor System Prompt - Slot Math Simulator (Universal, v1.4)
+# Cursor System Prompt — Slot Math IDE (v1.5.0 / v2)
 
-> **Project Positioning Statement**  
-> This project is the **core engine (Math Core) of a Slot Math IDE**, not a simple CLI simulation tool.  
-> CLI is a temporary interface. All design decisions should prioritize "future consumption by IDE/UI/Notebook".
-
----
-
-## ⛔ Core Constraints (Critical - Never Violate)
-
-### Absolutely Prohibited Actions
-
-1. **Do NOT Modify Core Math Logic**
-   - ❌ Do not change any behavior of the `RNG` class
-   - ❌ Do not modify the `weightedSelect()` probability selection logic
-   - ❌ Do not alter RTP calculation formulas or Gap statistics algorithms
-   - ❌ Do not modify Outcome probability distributions
-
-2. **Do NOT Modify FSM State Machine**
-   - ❌ Do not change `STATE.BASE` ↔ `STATE.FREE` transition logic
-   - ❌ Do not merge or refactor state transition rules
-   - ❌ Do not blur the semantic distinction between Base Game and Free Game
-
-3. **Do NOT Refactor Existing Architecture**
-   - ❌ Unless explicitly required by Spec, do not refactor for "cleanliness" or "optimization"
-   - ❌ Do not "casually reorganize" existing file structures
-   - ❌ Do not change the responsibility boundaries of `simulate.js`, `reporter.js`, `cli.js`
-
-4. **Do NOT Invent Logic**
-   - ❌ If the Spec is ambiguous or unclear, you must STOP and ASK
-   - ❌ Do not supplement behavior based on "common practices" or "personal experience"
-   - ❌ Do not deviate from Spec definitions for "user-friendliness"
+> **Project Positioning**
+>
+> This project is the **Math Core of a Slot Math IDE**, not a casual simulator.
+> CLI is temporary; all outputs must be IDE / UI / Notebook consumable.
+> Correctness, determinism, and spec fidelity are mandatory.
 
 ---
 
-## ✅ Allowed Actions Only
+## ⛔ Core Constraints (ABSOLUTE — NEVER VIOLATE)
 
-### What You CAN Do
+### 1. Math & RNG Integrity
 
-1. **Add New Modules**
-   - ✅ Create new modules as required by Spec (e.g., `resolver.js`, pattern generators)
-   - ✅ Create independent utility functions or classes for new features
-
-2. **Modify Configuration Files**
-   - ✅ Update `design.json` data structures to support new features
-   - ⚠️ Must maintain backward compatibility or provide clear migration guide
-
-3. **Extend I/O and CLI**
-   - ✅ Add command-line arguments in `cli.js`
-   - ✅ Add CSV or other output format capabilities
-
-4. **Update Report Output**
-   - ✅ Add presentation logic in `reporter.js`
-   - ⚠️ But do NOT perform mathematical calculations in `reporter.js`
+- ❌ Do NOT modify RNG logic (`rng.js`)
+- ❌ Do NOT modify outcome probability distributions / tables
+- ❌ Do NOT alter RTP / Gap calculation logic
+- ❌ Do NOT change FSM state transitions (BASE ↔ FREE)
+- ❌ Do NOT consume Math RNG from Visual Layer
 
 ---
 
-## 🏗️ Design Philosophy
+### 2. Truth Source Policy (v1.5.0 ~ v1.5.3)
 
-### Strict Module Responsibility Separation
+- **Outcome defines expected payout**
+- **Evaluator is a deterministic verifier + explainer**
+- Evaluator result MUST match Outcome expected payout (STRICT_MODE)
+
+```ts
+expectedWin = outcome.payoutMultiplier * bet   // integer credits
+evaluatedWin = sum(winEvents.winAmount)
+
+if (STRICT_MODE && expectedWin !== evaluatedWin) {
+  throw new Error("Validation mismatch: evaluator vs outcome");
+}
+```
+
+❌ Evaluator must NOT invent payout  
+❌ Evaluator must NOT override Outcome
+
+---
+
+### 3. Single Evaluation Point (Critical)
+
+- Each spin may call **evaluator exactly once**
+- **simulate.js** (or the main simulation pipeline) is the ONLY allowed entry point
+- `resolver.js` MUST NOT call evaluator
+- `visualConstraint.js` MUST NOT call evaluator
+
+---
+
+## 🧱 Strict Module Responsibilities
 
 ```
-┌─────────────────────────────────────────┐
-│ simulate.js (Math Core)                 │
-│ - RNG, FSM, Outcome Selection           │
-│ - Gap Tracking, RTP Calculation         │
-│ - Telemetry Only, No Formatting         │
-└─────────────────────────────────────────┘
-              ↓ Data Flow
-┌─────────────────────────────────────────┐
-│ resolver.js (Pattern / Grid Layer)      │
-│ - Pattern / Anchor Generation (v1.4)   │
-│ - Outcome → Legal Grid Composition      │
-│ - Optional Visual Constraint (v1.3)    │
-│ - Math Semantics Preserved              │
-└─────────────────────────────────────────┘
-              ↓ Presentation Data
-┌─────────────────────────────────────────┐
-│ reporter.js (Presentation)              │
-│ - Formatting, Tables, Console Output    │
-│ - No Math, No Business Logic            │
-└─────────────────────────────────────────┘
-              ↓ User Interface
-┌─────────────────────────────────────────┐
-│ cli.js (Orchestration)                  │
-│ - Argument Parsing, File I/O            │
-│ - Calls simulate() and printReport()    │
-└─────────────────────────────────────────┘
+simulate.js
+- RNG ownership
+- Outcome selection
+- FSM control
+- Evaluator invocation (single point)
+- Strict validation
+- Telemetry only
+
+resolver.js
+- Outcome → Grid generation
+- Pattern / Anchor logic (v1.4)
+- NO payout logic
+- NO evaluator invocation
+
+evaluator/*
+- Grid → WinEvent[]
+- Rule-based evaluation only
+- MUST NOT mutate grid
+
+visualConstraint.js
+- Visual-only optimization (Near Miss / Tease)
+- Uses outcome + winEvents
+- MUST NOT affect math result
+- MUST NOT scan grid to determine wins
+
+reporter.js
+- Formatting & CSV output only
+- NO math logic
 ```
 
 ---
 
-## 📍 Current Project Phase Awareness
+## 🎯 WinEvent Rules (v1.5.0)
 
-The project is currently in **v1.4 – Pattern Auto Generation** phase.
+- v1.5.0 produces **0~1 WinEvent** per spin
+- LINE WinEvent MUST include `positions`
+- `winAmount` MUST be integer credits
+- **Coordinate system MUST match paylines**: `positions` is **[row, col]** (row-major)
 
-- **v1.2**: Math Core (Completed, Frozen)
-- **v1.3**: Visual Constraint Layer (Completed, Optional, Non-math)
-- **v1.4**: Pattern Auto Generation (Active Development)
-
-⚠️ `resolver.js` is expected to evolve according to Spec v1.3 and v1.4.
-
----
-
-## 🔐 RNG Layering Rules (Critical)
-
-This project uses **multiple RNG layers with strict ownership**.
-
-### RNG Ownership
-
-- **Math RNG**
-  - Owned by `simulate.js`
-  - Used for:
-    - Outcome selection
-    - RTP / Gap / FSM correctness
-  - ❌ Must NOT be consumed by Visual Layer
-
-- **Pattern RNG (v1.4)**
-  - Used ONLY if Spec explicitly allows
-  - Purpose:
-    - Deterministic Pattern / Anchor generation
-  - ⚠️ Follow Spec decision strictly (Math RNG vs isolated RNG)
-
-- **Visual RNG (v1.3)**
-  - Used only inside Visual Constraint Layer
-  - MUST be isolated from Math RNG
-  - SHOULD be stateless or deterministically seeded per spin
-
-🚫 Never mix RNG responsibilities across layers
+> Note: v1.5.0 does NOT include `WinEvent.source` (all events are evaluator-produced).
 
 ---
 
-## 🎨 Visual Layer Clarification
+## 🎨 Visual Layer Safety Rules
 
-- Visual Constraint Layer:
-  - ✅ Improves grid readability
-  - ✅ Removes visual artifacts (e.g., full-row duplication)
-  - ❌ Does NOT render UI
-  - ❌ Does NOT calculate math
-  - ❌ Does NOT affect Outcome semantics
-
-Visual Constraint is applied **inside resolver flow**, not reporter.
+- Visual layer MUST respect `protectedCells` derived from `WinEvent.positions`
+- Near-miss / tease logic MAY read `outcome.id` / `outcome.type`
+- Visual layer MUST NOT alter winning cells
+- Transitional fallback to `legacyWinLine` is allowed ONLY when winEvents are missing
 
 ---
 
-## 🧱 Resolver Responsibilities (v1.4)
+## 🚫 Prohibited Behaviors
 
-Resolver now performs **three explicit steps**:
-
-1. **Pattern / Anchor Generation** (v1.4 – Math)
-2. **Base Grid Composition** (Math)
-3. **Optional Visual Constraint Application** (v1.3 – Non-math)
-
-Resolver MUST NOT:
-- Calculate RTP / Gap
-- Render UI
-- Invent logic beyond Spec
-
----
-
-## 🔄 Refactor Exception Rule
-
-Refactoring is **ALLOWED** only when:
-- Required by Spec v1.3 or v1.4
-- Limited to `resolver.js` or new generator modules
-
-❌ Refactoring for aesthetics or optimization is prohibited
-
----
-
-## 🎯 Universal Semantic Rules
-
-### Base / Free Separation
-
-- Gap applies only to BASE outcomes
-- FREE outcomes reference their parent `baseSpinIndex`
-
-### Data Structure First
-
-- All outputs must be IDE-consumable
-- Avoid CLI-driven data shaping
+- ❌ Calling evaluator more than once per spin
+- ❌ Performing math in reporter or visual layer
+- ❌ Introducing multi-win in v1.5.0
+- ❌ Refactoring for aesthetics without spec instruction
+- ❌ Guessing behavior if spec is unclear (ASK instead)
 
 ---
 
 ## 🧪 Self-Check Checklist
 
-Before submitting code:
+Before submitting code, verify:
 
-- [ ] Math Core untouched
-- [ ] FSM untouched
-- [ ] RNG ownership respected
-- [ ] Resolver changes are Spec-driven
-- [ ] Visual Layer does not affect math
-- [ ] No invented behavior
+- [ ] RNG determinism preserved
+- [ ] Outcome sequence unchanged
+- [ ] Evaluator called exactly once per spin
+- [ ] STRICT_MODE produces zero mismatches
+- [ ] Visual constraints do not break winning cells
+- [ ] CSV outputs expected vs evaluated fields
 
 ---
 
-## 🎓 Final Reminder
+## 🧠 Development Mindset
 
-Your goal is **correctness and fidelity to Spec**, not cleverness.
+> Correctness > Cleverness  
+> Determinism > Convenience  
+> Spec > Assumptions  
 
-If a decision impacts:
+If a change impacts:
 - RNG determinism
-- Outcome sequence
-- Pattern semantics
+- Outcome sequencing
+- Payout semantics
 
-You MUST stop and ask.
+You **MUST STOP AND ASK**.
 
 ---
 
-**This system prompt is authoritative for v1.4 development.**
+**This system prompt is authoritative for v1.5.0 development (v2).**

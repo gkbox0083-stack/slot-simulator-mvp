@@ -402,6 +402,40 @@ A: 建議在以下情況使用 `--no-visual`：
 
 詳細說明請參考：[v1.2 視覺語義聲明](./v1.2_VISUAL_SEMANTICS.md)
 
+## 開發工作流程
+
+### Branch A P0 Gate（進入 v1.5.1+ 開發前的必過關卡）
+
+**任何進入 v1.5.1+ 的 PR / commit，都必須先通過 Branch A P0 Gate。**
+
+```bash
+# 完整驗證（推薦，約 2-3 分鐘）
+node checklist/branchA_gate/gate_branch_A_p0.js --spins 2000
+
+# 快速驗證（約 30 秒）
+node checklist/branchA_gate/gate_branch_A_p0.js --spins 500
+```
+
+**Gate 驗證項目：**
+1. Acceptance Verifier（結構/欄位/單點評估等）
+2. Determinism Gate（seed=12345 與 seed=0）
+3. Legacy Random Gate（不帶 seed 連跑兩次，hash 必須不同）
+4. No Stray Math.random Gate（禁止偷用）
+5. Single Evaluation Point Gate（evaluator 只在 simulate.js 調用）
+6. Seed Derivation Centralization Gate（P0-7）
+
+**詳細說明：** 請參考 `checklist/README.md`
+
+---
+
+## 版本歷史
+
+- **v1.5.0**: Pay Rule Engine + Determinism Support
+- **v1.4.patch**: Near Miss & Tease Visual Upgrade
+- **v1.4**: Pattern Auto Generation
+- **v1.3**: Visual Constraint Layer
+- **v1.2.1**: RNG 獨立模組、版本號統一
+- **v1.2**: Pattern Resolver Layer
 - **v1.1** (2024-12-24): Analysis Depth Phase
   - 新增 Gap Tracking（體感指標）
   - 新增 CSV 匯出功能
