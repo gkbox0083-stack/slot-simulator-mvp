@@ -173,12 +173,17 @@ class PatternResolver {
         console.warn(`[PatternResolver] Outcome "${outcome.id}" 缺少 context，使用預設值`);
       }
       
-      patternResult.grid = this.visualEngine.applyConstraints(
+      // Phase A2: applyConstraints 現在返回 { grid, telemetry }
+      const visualResult = this.visualEngine.applyConstraints(
         patternResult.grid,
         outcome,
         patternResult.winLine,
         safeContext
       );
+      
+      // Phase A3: 傳遞 telemetry（不影響邏輯）
+      patternResult.grid = visualResult.grid;
+      patternResult.visualTelemetry = visualResult.telemetry;
     }
 
     return patternResult;

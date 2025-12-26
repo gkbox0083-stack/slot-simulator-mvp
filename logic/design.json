@@ -13,7 +13,25 @@
   "visualConfig": {
     "enabled": true,
     "safeFiller": "L1",
-    "maxRetries": 10
+    "maxRetries": 10,
+    "seedStrategy": "DERIVED",
+    "patchVersion": "v1.4.patch",
+    "nearMiss": {
+      "enabled": true,
+      "multiLineCountRange": [1, 2]
+    },
+    "tease": {
+      "enabled": true,
+      "targetOutcomeIds": ["SMALL_WIN", "FREE_SMALL_WIN"],
+      "triggerChance": 0.12,
+      "chanceByOutcomeId": {
+        "SMALL_WIN": 0.08,
+        "FREE_SMALL_WIN": 0.18
+      },
+      "cooldownSpins": 6,
+      "maxTriggersPer100Spins": 12,
+      "maxAttempts": 12
+    }
   },
   "symbols": [
     { "id": "H1", "name": "High1", "type": "HIGH" },

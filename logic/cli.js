@@ -215,25 +215,75 @@ function exportCSV(spinLog, csvPath) {
  * @param {Array} spinLog - Spin 記錄陣列
  * @returns {string} CSV 內容
  */
+/**
+ * v1.4.patch_tease_diag_fix: CSV 欄位 quoting（標準 CSV 格式）
+ * 
+ * 處理包含逗號、引號、換行的欄位
+ */
+function csvEscape(field) {
+  if (field === null || field === undefined) {
+    return '';
+  }
+  
+  const str = String(field);
+  
+  // 如果包含逗號、引號或換行，需要 quoting
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    // 將內部引號轉義為雙引號
+    const escaped = str.replace(/"/g, '""');
+    return `"${escaped}"`;
+  }
+  
+  return str;
+}
+
 function generateCSV(spinLog) {
-  // CSV Header (v1.4: 加入 patternSource, winConditionType, generatedWinLine, anchorsCount)
-  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount';
+  // v1.4.patch: CSV Header（包含所有 telemetry 欄位，包含新的 Tease probability 和 Guard diagnostics）
+  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount,visualRequestedType,visualAppliedType,visualApplied,visualPaylinesChosen,visualAttemptsUsed,visualGuardFailReason,visualSeed,teaseEligible,teaseChanceUsed,teaseRoll,teaseBlockedBy,visualGuardFailDetail,visualAttemptReasons';
   
   // CSV Rows
   const rows = spinLog.map(log => {
-    return [
-      log.globalSpinIndex,
-      log.baseSpinIndex,
-      log.state,
-      log.outcomeId,
-      log.type,
-      log.winAmount,
-      log.triggeredFeatureId || '',  // null 值輸出為空字串
-      log.patternSource || 'NONE',  // v1.4
-      log.winConditionType || '',    // v1.4
-      log.generatedWinLine !== null && log.generatedWinLine !== undefined ? log.generatedWinLine : '',  // v1.4
-      log.anchorsCount || 0  // v1.4
-    ].join(',');
+    // v1.4.patch_tease_diag_fix: visualPaylinesChosen 轉為 pipe-joined string（避免逗號問題）
+    const visualPaylinesChosen = Array.isArray(log.visualPaylinesChosen) 
+      ? log.visualPaylinesChosen.join('|')
+      : (log.visualPaylinesChosen || '');
+    
+    // v1.4.patch_tease_diag_fix: visualAttemptReasons 已經是字串（在 finalization 中處理）
+    const visualAttemptReasons = typeof log.visualAttemptReasons === 'string'
+      ? log.visualAttemptReasons
+      : (Array.isArray(log.visualAttemptReasons) ? log.visualAttemptReasons.join(';') : '');
+    
+    const row = [
+      csvEscape(log.globalSpinIndex),
+      csvEscape(log.baseSpinIndex),
+      csvEscape(log.state),
+      csvEscape(log.outcomeId),
+      csvEscape(log.type),
+      csvEscape(log.winAmount),
+      csvEscape(log.triggeredFeatureId || ''),  // null 值輸出為空字串
+      csvEscape(log.patternSource || 'NONE'),  // v1.4
+      csvEscape(log.winConditionType || ''),    // v1.4
+      csvEscape(log.generatedWinLine !== null && log.generatedWinLine !== undefined ? log.generatedWinLine : ''),  // v1.4
+      csvEscape(log.anchorsCount || 0),  // v1.4
+      // Phase A3: Visual Telemetry
+      csvEscape(log.visualRequestedType || 'NONE'),
+      csvEscape(log.visualAppliedType || 'NONE'),
+      csvEscape(log.visualApplied ? 'true' : 'false'),
+      csvEscape(visualPaylinesChosen),  // v1.4.patch_tease_diag_fix: pipe-joined
+      csvEscape(log.visualAttemptsUsed || 0),
+      csvEscape(log.visualGuardFailReason || ''),  // v1.4.patch_tease_diag_fix: 已清理成功案例
+      csvEscape(log.visualSeed || ''),
+      // v1.4.patch: Tease Probability fields
+      csvEscape(log.teaseEligible ? 'true' : 'false'),
+      csvEscape(log.teaseChanceUsed !== null && log.teaseChanceUsed !== undefined ? log.teaseChanceUsed : ''),
+      csvEscape(log.teaseRoll !== null && log.teaseRoll !== undefined ? log.teaseRoll : ''),
+      csvEscape(log.teaseBlockedBy || 'NONE'),
+      // v1.4.patch: Guard Diagnostics fields（JSON 字串，需要 quoting）
+      csvEscape(log.visualGuardFailDetail || ''),  // v1.4.patch_tease_diag_fix: 已清理成功案例
+      csvEscape(visualAttemptReasons)  // v1.4.patch_tease_diag_fix: 已經是字串
+    ];
+    
+    return row.join(',');
   });
   
   return [header, ...rows].join('\n');

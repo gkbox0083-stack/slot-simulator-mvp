@@ -1,4 +1,4 @@
-# Slot Math Simulator v1.3
+# Slot Math Simulator v1.4.patch
 
 ## ⚠️ 重要聲明
 
@@ -15,15 +15,18 @@
 - **Bet-centric 模擬**: 模擬玩家實際下注的 Base Game Spins，Free Game 為延伸結果
 - **Gap Tracking（體感指標）**: 計算 BASE Outcome 的出現間隔（平均、中位數、最大值）
 - **Raw Data Export（CSV）**: 匯出逐 Spin 的詳細記錄，支援後續分析
-- **Visual Constraint Layer（v1.3）**: 改善盤面視覺呈現，消除整列重複，支援 Near Miss 視覺特徵
+- **Pattern Auto Generation（v1.4）**: 基於 `winCondition` 自動生成最小錨點模式，取代硬編碼 pattern
+- **Visual Constraint Layer（v1.3+）**: 改善盤面視覺呈現，消除整列重複，支援 Near Miss 和 Tease 視覺特徵
+- **Tease Probability & Guard Diagnostics（v1.4.patch）**: 機率性 Tease 觸發、cooldown/rate limiting、詳細的 guard 診斷資訊
 
 ### 驗證機制
 
 - **Validator**: 檢查 JSON 設定檔的結構完整性與致命錯誤
   - 檢查必要欄位是否存在
-  - 檢查 Outcome ID 與 Pattern 的對應關係
+  - 檢查 Outcome ID 與 Pattern/winCondition 的對應關係（v1.4）
   - 檢查權重總和是否為 0（會導致 RNG 錯誤）
-  - 警告邏輯不一致（如 WIN 類型的 Outcome 使用 `isWin: false` 的 Pattern）
+  - 驗證 `winCondition` 結構完整性（v1.4）
+  - 警告邏輯不一致（如 WIN 類型的 Outcome 缺少 `winCondition` 或 legacy pattern）
 
 **注意**: Validator 僅檢查資料結構與致命錯誤，**不驗證數學合理性**（如 RTP 是否達到目標值、權重分配是否合理等）。數學驗證需透過模擬結果自行判斷。
 
@@ -155,10 +158,23 @@ node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
 #### `featureConfig`
 - `freeSpinCount`: Free Game 觸發時的免費 Spin 次數（數字，必須 > 0）
 
-#### `visualConfig` (v1.3)
+#### `visualConfig` (v1.3+)
 - `enabled`: 是否啟用 Visual Constraint Layer（布林值，預設 true）
 - `safeFiller`: 安全填充符號 ID（字串，預設 "L1"）
 - `maxRetries`: 視覺約束重試次數（數字，預設 10）
+- `seedStrategy`: Seed 推導策略（字串，預設 "DERIVED"）
+- `patchVersion`: Patch 版本號（字串，預設 "v1.4.patch"）
+- `nearMiss` (v1.3+): Near Miss 配置
+  - `enabled`: 是否啟用 Near Miss（布林值，預設 true）
+  - `multiLineCountRange`: 多線 Near Miss 數量範圍（陣列，預設 [1, 2]）
+- `tease` (v1.4.patch+): Tease 配置
+  - `enabled`: 是否啟用 Tease（布林值，預設 true）
+  - `targetOutcomeIds`: 目標 Outcome ID 陣列（陣列，預設 ["SMALL_WIN", "FREE_SMALL_WIN"]）
+  - `triggerChance`: 預設觸發機率（數字，0-1，預設 0.12）
+  - `chanceByOutcomeId`: 每個 Outcome ID 的個別機率（物件，可選）
+  - `cooldownSpins`: Cooldown 間隔（數字，預設 0，0 表示關閉）
+  - `maxTriggersPer100Spins`: 每 100 次 Spin 的最大觸發次數（數字，預設 null，null 表示關閉）
+  - `maxAttempts`: 最大嘗試次數（數字，預設 12）
 
 #### `gameRules` (v1.2+)
 - `BASE`: Base Game 規則
@@ -168,6 +184,19 @@ node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
   - `winCondition`: 中獎條件（目前僅支援 "payline"）
   - `paylines`: Payline 陣列（每個 payline 為 [row, col] 座標陣列）
 - `FREE`: Free Game 規則（v1.3 MVP 為 null）
+
+#### `outcomes` (v1.4+)
+- `winCondition` (WIN 類型可選，v1.4 新增): 中獎條件定義（取代 legacy pattern）
+  - `type`: 條件類型（"LINE" | "SCATTER"）
+  - `LINE` 類型:
+    - `symbolId`: 中獎符號 ID（字串）
+    - `matchCount`: 連線數量（數字）
+    - `payDirection`: 支付方向（"LTR" | "RTL"，預設 "LTR"）
+    - `eligiblePaylines`: 符合條件的 payline 索引陣列（可選，預設為所有 paylines）
+  - `SCATTER` 類型:
+    - `symbolId`: Scatter 符號 ID（字串）
+    - `minCount`: 最小數量（數字）
+    - `anyPosition`: 是否任意位置（布林值，預設 true）
 
 #### `outcomeTables.BASE` / `outcomeTables.FREE`
 - `outcomes`: Outcome 陣列
@@ -186,8 +215,10 @@ node logic/cli.js -n 50000 -f logic/design.json --csv output/data.csv
 2. **FEATURE 類型的 Outcome 只能出現在 BASE Table 中**
 3. **FREE Table 中不得包含 FEATURE 類型的 Outcome**（v1.0 不支援 Re-trigger）
 4. **WIN 類型的 Outcome 必須包含 winConfig**（v1.2+）
-5. **winConfig.matchCount 不得超過 grid.cols**（v1.2+）
-6. **symbols 陣列中的每個元素必須包含 id 和 type 欄位**（v1.2+）
+5. **WIN 類型的 Outcome 必須包含 winCondition 或 legacy pattern/patterns**（v1.4+）
+6. **winConfig.matchCount 不得超過 grid.cols**（v1.2+）
+7. **symbols 陣列中的每個元素必須包含 id 和 type 欄位**（v1.2+）
+8. **winCondition 與 winConfig 必須一致**（v1.4+，如 symbolId、matchCount）
 
 ### 範本檔案
 
@@ -235,6 +266,8 @@ A: Gap 統計是體感指標，用於評估 Outcome 的出現頻率：
 ### Q: CSV 匯出的資料格式是什麼？
 
 A: CSV 檔案包含以下欄位：
+
+**基本欄位**:
 - `globalSpinIndex`: 全域流水號（1, 2, 3...）
 - `baseSpinIndex`: Base Spin Index（FREE 狀態時為觸發該 Free Game 的 Base Spin）
 - `state`: "BASE" 或 "FREE"
@@ -243,14 +276,40 @@ A: CSV 檔案包含以下欄位：
 - `winAmount`: 該轉贏分
 - `triggeredFeatureId`: 如果是 FEATURE 類型，記錄 outcomeId；否則為空字串
 
+**Pattern Generation 欄位（v1.4+）**:
+- `patternSource`: Pattern 來源（"GENERATED" | "LEGACY" | "NONE"）
+- `winConditionType`: winCondition 類型（"LINE" | "SCATTER" | ""）
+- `generatedWinLine`: 生成的 winLine 索引（數字或空字串）
+- `anchorsCount`: 生成的錨點數量（數字）
+
+**Visual Telemetry 欄位（v1.3+）**:
+- `visualRequestedType`: 請求的視覺類型（"TEASE" | "NEAR_MISS" | "NONE"）
+- `visualAppliedType`: 實際應用的視覺類型（"TEASE" | "NEAR_MISS" | "NONE"）
+- `visualApplied`: 是否成功應用視覺效果（布林值）
+- `visualPaylinesChosen`: 選擇的 payline 索引（逗號分隔字串）
+- `visualAttemptsUsed`: 視覺嘗試次數（數字）
+- `visualGuardFailReason`: Guard 失敗原因（字串或空字串）
+- `visualSeed`: Visual RNG seed（字串）
+
+**Tease Probability 欄位（v1.4.patch+）**:
+- `teaseEligible`: 是否符合 Tease 條件（布林值）
+- `teaseChanceUsed`: 使用的觸發機率（數字或空字串）
+- `teaseRoll`: 機率骰子結果（數字或空字串）
+- `teaseBlockedBy`: 被阻擋的原因（"NONE" | "COOLDOWN" | "RATE_LIMIT" | "CHANCE_MISS" | "NOT_ELIGIBLE"）
+
+**Guard Diagnostics 欄位（v1.4.patch+）**:
+- `visualGuardFailDetail`: Guard 失敗詳細資訊（JSON 字串或空字串）
+- `visualAttemptReasons`: 嘗試序列（分號分隔字串，如 "ACCIDENTAL_WIN_PAYLINE_1;SUCCESS"）
+
 ### Q: Visual Constraint Layer 是什麼？會影響數學結果嗎？
 
-A: Visual Constraint Layer（v1.3）是純視覺優化層，**完全不會影響數學結果**：
-- 使用獨立的 Visual RNG（與 Math RNG 完全隔離）
-- 僅改善盤面視覺呈現（消除整列重複、Near Miss 視覺特徵）
+A: Visual Constraint Layer（v1.3+）是純視覺優化層，**完全不會影響數學結果**：
+- 使用獨立的 Visual RNG（與 Math RNG 完全隔離，seed 由 `mathSeed`、`spinIndex`、`outcomeId`、`patchVersion` 推導）
+- 僅改善盤面視覺呈現（消除整列重複、Near Miss 視覺特徵、Tease 視覺效果）
 - 不修改 Outcome、不影響 RTP、不改變任何數學行為
-- 固定 seed 下，v1.2 與 v1.3 的 Total Win Amount 完全相同
+- 固定 seed 下，v1.2 與 v1.3+ 的 Total Win Amount 完全相同
 - 可使用 `--no-visual` 關閉，行為與 v1.2 bitwise identical
+- **v1.4.patch 新增**: 機率性 Tease 觸發、cooldown/rate limiting、詳細的 guard 診斷資訊
 
 ### Q: 什麼時候應該使用 `--no-visual`？
 
@@ -265,11 +324,13 @@ A: 建議在以下情況使用 `--no-visual`：
 ### 核心引擎
 
 - **檔案**: `logic/simulate.js`
-- **版本**: Core Spec v1.3
+- **版本**: Core Spec v1.4.patch
 - **原則**: Outcome-based, FSM, Bet-centric
 - **v1.1 新增**: Gap Tracking、Spin Logging (CSV)
 - **v1.2 新增**: Pattern Resolver Layer（動態 Grid 生成）
 - **v1.3 新增**: Visual Constraint Layer（視覺優化）
+- **v1.4 新增**: Pattern Auto Generation（基於 winCondition 自動生成錨點）
+- **v1.4.patch 新增**: Tease Probability、Guard Diagnostics、visualState 管理
 
 ### 驗證器
 
@@ -281,15 +342,27 @@ A: 建議在以下情況使用 `--no-visual`：
 - **檔案**: `logic/reporter.js`
 - **功能**: 格式化輸出、專業報表生成
 
+### Pattern Generator
+
+- **檔案**: `logic/patternGenerator.js`
+- **版本**: v1.4
+- **功能**: 基於 winCondition 自動生成最小錨點模式
+  - 支援 LINE 類型（LTR/RTL 支付方向）
+  - 支援 SCATTER 類型（任意位置）
+  - 使用獨立的 Pattern RNG（與 Math RNG 完全隔離）
+  - 僅生成必要的錨點位置，不生成完整 grid
+
 ### Visual Constraint Layer
 
 - **檔案**: `logic/visualConstraint.js`
-- **版本**: v1.3
+- **版本**: v1.4.patch
 - **功能**: 視覺約束處理，改善盤面呈現
   - 消除整列重複
-  - Near Miss 視覺特徵
+  - Near Miss 視覺特徵（支援多線）
+  - Tease 視覺效果（機率性觸發、cooldown/rate limiting）
   - 符號分布自然度改善
   - 完全隔離的 Visual RNG（不影響數學結果）
+  - Guard Diagnostics（詳細的失敗原因和診斷資訊）
 
 ## 授權
 
@@ -297,7 +370,23 @@ A: 建議在以下情況使用 `--no-visual`：
 
 ## 版本歷史
 
-詳細版本歷史請參考 [SPEC-VERSIONS.md](SPEC-VERSIONS.md)
+詳細版本歷史請參考 [SPEC-VERSIONS.md](spec/SPEC-VERSIONS.md)
+
+### v1.4.patch - Tease Probability & Guard Diagnostics
+- ✅ 實現機率性 Tease 觸發（triggerChance、chanceByOutcomeId）
+- ✅ 實現 Cooldown 機制（cooldownSpins）
+- ✅ 實現 Rate Limiting（maxTriggersPer100Spins，rolling window）
+- ✅ 增強 Guard Diagnostics（visualGuardFailDetail、visualAttemptReasons）
+- ✅ 使用 caller-owned visualState（不持有跨 spin 內部狀態）
+- ✅ 擴充 CSV telemetry 欄位（teaseEligible、teaseChanceUsed、teaseRoll、teaseBlockedBy 等）
+
+### v1.4 - Pattern Auto Generation
+- ✅ 實現基於 winCondition 的自動模式生成
+- ✅ 支援 LINE 類型（LTR/RTL 支付方向）
+- ✅ 支援 SCATTER 類型（任意位置，防意外觸發）
+- ✅ 使用獨立的 Pattern RNG（與 Math RNG 完全隔離）
+- ✅ 向後相容 legacy pattern/patterns
+- ✅ 新增 patternSource、winConditionType、generatedWinLine、anchorsCount 欄位
 
 ### v1.3 - Visual Constraint Layer
 - ✅ 實現視覺約束處理

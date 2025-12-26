@@ -234,6 +234,12 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
   let globalSpinIndex = 0;
   let currentParentBaseSpin = null;  // 追蹤觸發 Free Game 的 Base Spin
 
+  // v1.4.patch: Visual State (caller-owned, for cooldown/rate limiting)
+  const visualState = {
+    lastTeaseSpinIndex: undefined,
+    teaseWindow: undefined
+  };
+
   // 用於詳細輸出的資料
   const spinDetails = [];
   const stateTransitions = [];
@@ -287,11 +293,13 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     let patternResult;
     if (currentState === STATE.BASE && baseResolver) {
       // v1.3/v1.4: 建立 context（包含 spinIndex, mathSeed, outcomeId）
+      // v1.4.patch: 加入 visualState（caller-owned，用於 cooldown/rate limiting）
+      // Phase C: visualSeed 由 visualConstraint.js 統一推導（不在此處設定）
       const context = {
-        spinIndex: globalSpinIndex,  // v1.3: 用於 Visual RNG
-        visualSeed: globalSpinIndex * 7919 + 1000000,  // v1.3: 推導 visualSeed（與 Math RNG 隔離）
-        mathSeed: mathSeed,  // v1.4: 用於 Pattern Generator
-        outcomeId: outcome.id  // v1.4: 用於 Pattern Generator
+        spinIndex: globalSpinIndex,
+        mathSeed: mathSeed,  // v1.4: 用於 Pattern Generator 和 Visual Seed 推導
+        outcomeId: outcome.id,  // v1.4: 用於 Pattern Generator 和 Visual Seed 推導
+        visualState: visualState  // v1.4.patch: caller-owned state for visual layer
       };
       patternResult = baseResolver.resolve(outcome, context);
     } else {
@@ -384,6 +392,25 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         ? outcome.id 
         : '';
       
+      // v1.4.patch_tease_diag_fix: 收集 telemetry（如果存在，已 finalize）
+      const visualTelemetry = patternResult.visualTelemetry || null;
+      
+      // v1.4.patch_tease_diag_fix: visualPaylinesChosen 保持為陣列（CSV exporter 會處理）
+      const visualPaylinesChosen = visualTelemetry 
+        ? (Array.isArray(visualTelemetry.visualPaylinesChosen) 
+            ? visualTelemetry.visualPaylinesChosen 
+            : [])
+        : [];
+      
+      // v1.4.patch_tease_diag_fix: visualAttemptReasons 已經是字串（在 finalization 中處理）
+      const visualAttemptReasons = visualTelemetry 
+        ? (typeof visualTelemetry.visualAttemptReasons === 'string'
+            ? visualTelemetry.visualAttemptReasons
+            : (Array.isArray(visualTelemetry.visualAttemptReasons) 
+                ? visualTelemetry.visualAttemptReasons.join(';')
+                : ''))
+        : '';
+      
       spinLog.push({
         globalSpinIndex: globalSpinIndex,
         baseSpinIndex: baseSpinIndex,
@@ -396,7 +423,23 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         patternSource: patternResult.patternSource || 'NONE',
         winConditionType: patternResult.winConditionType || null,
         generatedWinLine: patternResult.winLine !== null ? patternResult.winLine : null,
-        anchorsCount: patternResult.anchorsCount || 0
+        anchorsCount: patternResult.anchorsCount || 0,
+        // Phase A3: Visual Telemetry（已 finalize）
+        visualRequestedType: visualTelemetry ? visualTelemetry.visualRequestedType : 'NONE',
+        visualAppliedType: visualTelemetry ? visualTelemetry.visualAppliedType : 'NONE',
+        visualApplied: visualTelemetry ? visualTelemetry.visualApplied : false,
+        visualPaylinesChosen: visualPaylinesChosen,  // v1.4.patch_tease_diag_fix: 保持為陣列
+        visualAttemptsUsed: visualTelemetry ? visualTelemetry.visualAttemptsUsed : 0,
+        visualGuardFailReason: visualTelemetry ? (visualTelemetry.visualGuardFailReason || '') : '',
+        visualSeed: visualTelemetry ? visualTelemetry.visualSeed : '',
+        // v1.4.patch: Tease Probability fields
+        teaseEligible: visualTelemetry ? (visualTelemetry.teaseEligible || false) : false,
+        teaseChanceUsed: visualTelemetry ? (visualTelemetry.teaseChanceUsed !== null && visualTelemetry.teaseChanceUsed !== undefined ? visualTelemetry.teaseChanceUsed : null) : null,
+        teaseRoll: visualTelemetry ? (visualTelemetry.teaseRoll !== null && visualTelemetry.teaseRoll !== undefined ? visualTelemetry.teaseRoll : null) : null,
+        teaseBlockedBy: visualTelemetry ? (visualTelemetry.teaseBlockedBy || 'NONE') : 'NONE',
+        // v1.4.patch_tease_diag_fix: Guard Diagnostics fields（已 finalize，成功案例已清理）
+        visualGuardFailDetail: visualTelemetry ? (visualTelemetry.visualGuardFailDetail || '') : '',
+        visualAttemptReasons: visualAttemptReasons  // v1.4.patch_tease_diag_fix: 已經是字串
       });
     }
 
