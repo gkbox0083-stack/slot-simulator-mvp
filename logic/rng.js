@@ -49,6 +49,47 @@ class RNG {
   }
 
   /**
+   * P0-7 Invariant: Canonical sub-seed derivation
+   * 
+   * All sub-RNGs MUST use this method.
+   * No other seed construction is allowed.
+   * 
+   * @param {string} kind - 'PATTERN' | 'VISUAL' | future extensions
+   * @param {Object} context - Context object
+   * @param {string|null} context.mathSeed - Math seed (null for legacy mode)
+   * @param {number} context.spinIndex - Spin index
+   * @param {string} context.outcomeId - Outcome ID
+   * @param {string} [context.patchVersion='v1.5.0'] - Patch version (default: 'v1.5.0')
+   * @returns {number} Numeric seed value (for RNG constructor)
+   * 
+   * @static
+   */
+  static deriveSubSeed(kind, context) {
+    const baseSeed =
+      context.mathSeed !== null && context.mathSeed !== undefined
+        ? String(context.mathSeed)
+        : 'LEGACY';
+
+    const spin = context.spinIndex ?? 0;
+    const outcome = context.outcomeId ?? 'UNKNOWN';
+    const patch = context.patchVersion ?? 'v1.5.0';
+
+    // DO NOT change format ordering without bumping patchVersion
+    const seedString = `${kind}|${baseSeed}|${spin}|${outcome}|${patch}`;
+    
+    // Convert seed string to numeric hash (centralized hash logic)
+    let hash = 0;
+    for (let i = 0; i < seedString.length; i++) {
+      const char = seedString.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    
+    // Ensure positive number
+    return Math.abs(hash) || 1;
+  }
+
+  /**
    * 產生 0 ~ 1 之間的隨機數（[0, 1)，不包含 1）
    * @returns {number} 0 ~ 1 之間的隨機數
    */

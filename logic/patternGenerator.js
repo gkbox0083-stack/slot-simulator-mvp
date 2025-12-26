@@ -67,25 +67,21 @@ class PatternGenerator {
   /**
    * 推導 Pattern RNG 的 seed
    * 
+   * P0-7 Invariant: 使用 RNG.deriveSubSeed() 集中化推導
+   * 
    * 規則：
    * - 必須是 deterministic
    * - 必須與 Math RNG 完全隔離
    * - 相同 context 產生相同 seed
    */
   _derivePatternSeed(context) {
-    // 使用簡單的 hash 函數（確保 deterministic）
-    const seedString = `${context.mathSeed}:${context.spinIndex}:${context.outcomeId}:PATTERN`;
-    
-    // 簡單的 string hash（轉為數字）
-    let hash = 0;
-    for (let i = 0; i < seedString.length; i++) {
-      const char = seedString.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    
-    // 確保為正數
-    return Math.abs(hash) || 1;
+    // P0-7: 使用集中化的 seed 推導 API（直接返回數字 seed）
+    return RNG.deriveSubSeed('PATTERN', {
+      mathSeed: context.mathSeed,
+      spinIndex: context.spinIndex,
+      outcomeId: context.outcomeId,
+      patchVersion: 'v1.5.0'  // Pattern generator version
+    });
   }
 
   /**

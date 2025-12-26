@@ -394,27 +394,23 @@ class VisualConstraintEngine {
   /**
    * Phase C: Derived Seed Unification
    * 
+   * P0-7 Invariant: 使用 RNG.deriveSubSeed() 集中化推導
+   * 
    * 統一 seed 推導公式（包含 patchVersion）
-   * hash(mathSeed, spinIndex, outcome.id, "VISUAL", patchVersion)
    */
   _deriveVisualSeed(context) {
     if (context.visualSeed !== undefined) {
       return context.visualSeed;
     }
 
-    // Phase C: 使用統一的 seed 推導公式，包含 patchVersion
-    const patchVersion = this.visualConfig.patchVersion || 'v1.4.patch';
-    const seedString = `${context.mathSeed || 'default'}:${context.spinIndex || 0}:${context.outcomeId || 'unknown'}:VISUAL:${patchVersion}`;
-    
-    // 簡單的 string hash（轉為數字）
-    let hash = 0;
-    for (let i = 0; i < seedString.length; i++) {
-      const char = seedString.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    
-    return Math.abs(hash) || 1;
+    // P0-7: 使用集中化的 seed 推導 API（直接返回數字 seed）
+    const patchVersion = this.visualConfig.patchVersion || 'v1.5.0';
+    return RNG.deriveSubSeed('VISUAL', {
+      mathSeed: context.mathSeed,
+      spinIndex: context.spinIndex,
+      outcomeId: context.outcomeId,
+      patchVersion: patchVersion
+    });
   }
 
   /**
