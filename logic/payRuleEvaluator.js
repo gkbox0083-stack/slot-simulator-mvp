@@ -1,25 +1,27 @@
 /**
  * v1.5.0: Pay Rule Evaluator
+ * v1.5.3: 支援 ANY_POSITION rule
  * 
  * 核心原則：
  * - Single Evaluation Point：由 simulate.js 統一呼叫
  * - Truth Source：Outcome 定義 expected payout，Evaluator 為 deterministic verifier
  * - 不修改 grid，只讀取並評估
  * - v1.5.0 僅支援 LINE rule（單事件）
+ * - v1.5.3 新增 ANY_POSITION rule（單事件模式，與 LINE 互斥）
  */
 
 /**
- * WinEvent 結構（v1.5.0）
+ * WinEvent 結構（v1.5.0 / v1.5.3）
  * 
  * @typedef {Object} WinEvent
  * @property {string} eventId - 事件 ID（唯一識別）
- * @property {string} ruleType - 規則類型（'LINE'）
+ * @property {string} ruleType - 規則類型（'LINE' | 'ANY_POSITION'）
  * @property {number} winAmount - 贏分（credit int）
  * @property {string} paidSymbolId - 支付符號 ID
  * @property {string} displaySymbolId - 顯示符號 ID（通常等於 paidSymbolId）
  * @property {Array<[number, number]>} positions - 中獎位置陣列 [[row, col], ...]
- * @property {number} [matchCount] - 連線數量
- * @property {number} [paylineIndex] - Payline 索引
+ * @property {number} [matchCount] - 連線數量（LINE）或符號數量（ANY_POSITION）
+ * @property {number} [paylineIndex] - Payline 索引（僅 LINE）
  * @property {Object} [metadata] - 額外元資料
  */
 
@@ -45,15 +47,15 @@ class PayRuleEvaluator {
    * 
    * @param {Array<Array<string>>} grid - 盤面（rows x cols）
    * @param {Object} ruleContext - 規則上下文（可選）
-   * @returns {Array<WinEvent>} WinEvent 陣列（v1.5.0 限制：0~1 個事件）
+   * @returns {Array<WinEvent>} WinEvent 陣列（v1.5.0/v1.5.3 限制：0~1 個事件）
    */
   evaluate(grid, ruleContext = {}) {
     if (!grid || grid.length === 0) {
       return [];
     }
 
-    // v1.5.0: 僅支援 LINE rule
-    const winEvents = [];
+    // v1.5.0: 先評估 LINE rule
+    const lineEvents = [];
     
     // 評估所有 paylines
     for (let paylineIndex = 0; paylineIndex < this.paylines.length; paylineIndex++) {
@@ -61,14 +63,22 @@ class PayRuleEvaluator {
       const lineEvent = this._evaluateLinePay(grid, payline, paylineIndex);
       
       if (lineEvent) {
-        winEvents.push(lineEvent);
+        lineEvents.push(lineEvent);
         // v1.5.0 限制：只返回第一個匹配的事件（單事件模式）
         break;
       }
     }
 
-    // v1.5.0 限制：確保最多 1 個事件
-    return winEvents.slice(0, 1);
+    // v1.5.3: 如果 LINE 有事件，返回 LINE（單事件模式，互斥）
+    if (lineEvents.length > 0) {
+      return lineEvents.slice(0, 1);
+    }
+
+    // v1.5.3: 評估 ANY_POSITION rule
+    const anyPosEvents = this._evaluateAnyPositionPay(grid);
+    
+    // v1.5.3 限制：確保最多 1 個事件
+    return anyPosEvents.slice(0, 1);
   }
 
   /**
@@ -146,6 +156,59 @@ class PayRuleEvaluator {
       paylineIndex: paylineIndex,
       metadata: {}
     };
+  }
+
+  /**
+   * v1.5.3: 評估 ANY_POSITION pay
+   * 
+   * 規則：
+   * - 計算 grid 上 A1 符號的數量
+   * - 如果 a1Count >= 3，產生 WinEvent
+   * - 返回所有 A1 符號的位置
+   * 
+   * 注意：
+   * - Evaluator 不應依賴 outcome，只負責檢測 grid 上的 A1 數量
+   * - winAmount 由 simulate.js 根據 outcome.payoutMultiplier * bet 設定
+   * 
+   * @param {Array<Array<string>>} grid - 盤面
+   * @returns {Array<WinEvent>} WinEvent 陣列（最多 1 個）
+   */
+  _evaluateAnyPositionPay(grid) {
+    // 查找 ANY_POSITION 符號（A1）
+    const anyPositionSymbol = this.symbols.find(s => s.type === 'ANY_POSITION');
+    if (!anyPositionSymbol) {
+      return [];  // 如果沒有 ANY_POSITION 符號，返回空陣列
+    }
+    
+    const a1SymbolId = anyPositionSymbol.id;
+    
+    // 計算 A1 數量並收集位置
+    const a1Positions = [];
+    for (let row = 0; row < grid.length; row++) {
+      for (let col = 0; col < grid[row].length; col++) {
+        if (grid[row][col] === a1SymbolId) {
+          a1Positions.push([row, col]);
+        }
+      }
+    }
+    
+    const a1Count = a1Positions.length;
+    
+    // v1.5.3: 最小觸發門檻為 3（可配置，但目前固定為 3）
+    if (a1Count >= 3) {
+      return [{
+        eventId: `ANY_POS_${a1SymbolId}_${a1Count}`,
+        ruleType: 'ANY_POSITION',
+        winAmount: 0, // 將由 simulate.js 根據 outcome 計算
+        paidSymbolId: a1SymbolId,
+        displaySymbolId: a1SymbolId,
+        positions: a1Positions,
+        matchCount: a1Count,
+        metadata: {}
+      }];
+    }
+    
+    return [];
   }
 }
 

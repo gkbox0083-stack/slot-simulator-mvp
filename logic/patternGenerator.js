@@ -59,6 +59,9 @@ class PatternGenerator {
       return this._generateLineAnchors(winCondition, localRng);
     } else if (winCondition.type === 'SCATTER') {
       return this._generateScatterAnchors(winCondition, localRng, context);
+    } else if (winCondition.type === 'ANY_POSITION') {
+      // v1.5.3: ANY_POSITION 不需要 anchors（由 any-position layer 處理）
+      return this._generateAnyPositionAnchors(winCondition);
     } else {
       throw new Error(`不支援的 winCondition.type: ${winCondition.type}`);
     }
@@ -263,6 +266,29 @@ class PatternGenerator {
     }
 
     return false;  // 沒有問題
+  }
+
+  /**
+   * v1.5.3: 生成 ANY_POSITION 類型的 anchors
+   * 
+   * 規則：
+   * - ANY_POSITION 不需要 anchors（由 any-position layer 處理）
+   * - 返回空的 anchors 陣列
+   * - 設置 winConditionType 為 'ANY_POSITION'
+   */
+  _generateAnyPositionAnchors(winCondition) {
+    // 驗證必要欄位
+    if (!winCondition.symbolId || typeof winCondition.targetCount !== 'number') {
+      throw new Error('ANY_POSITION winCondition 必須包含 symbolId 和 targetCount');
+    }
+
+    // ANY_POSITION 不需要 anchors（由 any-position layer 處理）
+    return {
+      anchors: [],  // 空 anchors
+      generatedWinLine: null,  // 沒有 winLine
+      winConditionType: 'ANY_POSITION',
+      patternSource: 'GENERATED'
+    };
   }
 }
 

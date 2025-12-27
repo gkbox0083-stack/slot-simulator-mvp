@@ -50,12 +50,14 @@ class PatternResolver {
     
     // 背景填充權重（優先 LOW, MID）
     // v1.5.2: SCATTER 權重設為 0（base generator 不應生成 scatter，由 scatter layer 負責）
+    // v1.5.3: ANY_POSITION 權重設為 0（base generator 不應生成 A1，由 any-position layer 負責）
     this.fillerWeights = {
       'LOW': 50,
       'MID': 30,
       'HIGH': 15,
       'WILD': 4,
-      'SCATTER': 0  // v1.5.2: 禁止 base generator 生成 scatter
+      'SCATTER': 0,  // v1.5.2: 禁止 base generator 生成 scatter
+      'ANY_POSITION': 0  // v1.5.3: 禁止 base generator 生成 A1
     };
   }
 
@@ -184,6 +186,17 @@ class PatternResolver {
         fallbackUsed: false
       };
     }
+
+    // v1.5.3: 套用 Any-Position Layer（在 scatter layer 之後）
+    const anyPositionResult = this._applyAnyPositionLayer(
+      patternResult.grid,
+      outcome,
+      context?.mathSeed,
+      context?.spinIndex,
+      context?.outcomeId
+    );
+    patternResult.grid = anyPositionResult.grid;
+    patternResult.anyPositionTelemetry = anyPositionResult.telemetry;
 
     // v1.5.0: Visual Constraint 已移至 simulate.js（在 evaluator 之後）
     // resolver 只負責生成 grid，不處理 visual 層
@@ -698,6 +711,242 @@ class PatternResolver {
       grid: processedGrid,
       telemetry: {
         count: countScatter(processedGrid),
+        guardApplied: guardApplied,
+        attemptsUsed: attemptsUsed,
+        fallbackUsed: fallbackUsed
+      }
+    };
+  }
+
+  /**
+   * v1.5.3: 套用 Any-Position Layer（獨立 layer，不重構 pipeline）
+   * 
+   * 規則：
+   * - Trigger（outcome.winCondition.type === 'ANY_POSITION'）：a1Count 必須「剛好 == targetCount」
+   * - Non-trigger（任何非 ANY_POSITION outcome）：a1Count 必須「固定 == 0」（Anti-trigger guard）
+   * - 使用 seeded RNG 選位置覆寫
+   * - 有限重試（例如 20 次）
+   * - STRICT 驗證：最終 a1Count 必須符合目標
+   * 
+   * @param {Array<Array<string>>} grid - Base grid（已套用 scatter layer）
+   * @param {Object} outcome - Outcome 物件
+   * @param {string} mathSeed - Math seed（用於派生 any-position RNG）
+   * @param {number} spinIndex - Spin 索引
+   * @param {string} outcomeId - Outcome ID
+   * @returns {Object} { grid, telemetry }
+   */
+  _applyAnyPositionLayer(grid, outcome, mathSeed, spinIndex, outcomeId) {
+    // 查找 ANY_POSITION 符號（A1）
+    const anyPositionSymbol = this.symbols.find(s => s.type === 'ANY_POSITION');
+    if (!anyPositionSymbol) {
+      // 如果沒有 ANY_POSITION 符號，直接返回（不處理）
+      return {
+        grid: grid,
+        telemetry: {
+          count: 0,
+          guardApplied: false,
+          attemptsUsed: 0,
+          fallbackUsed: false
+        }
+      };
+    }
+    
+    const a1SymbolId = anyPositionSymbol.id;
+    const maxRetries = 20;  // 固定重試次數
+    
+    // 判斷是否為 trigger 情況
+    const isTrigger = outcome.winCondition 
+      && outcome.winCondition.type === 'ANY_POSITION'
+      && outcome.winCondition.symbolId === a1SymbolId;
+    
+    // 目標 a1Count
+    const targetCount = isTrigger ? (outcome.winCondition.targetCount || 0) : 0;
+    
+    // 派生 any-position RNG（使用 mathSeed, spinIndex, outcomeId）
+    const anyPositionSeed = RNG.deriveSubSeed('ANY_POSITION', {
+      mathSeed: mathSeed || 'default',
+      spinIndex: spinIndex || 0,
+      outcomeId: outcomeId || outcome.id,
+      patchVersion: 'v1.5.3'
+    });
+    const anyPositionRng = new RNG(anyPositionSeed);
+    
+    // 計算當前 a1Count
+    const countA1 = (g) => {
+      let count = 0;
+      for (let row = 0; row < g.length; row++) {
+        for (let col = 0; col < g[row].length; col++) {
+          if (g[row][col] === a1SymbolId) {
+            count++;
+          }
+        }
+      }
+      return count;
+    };
+    
+    // 獲取所有非 A1 符號（用於替換）
+    const nonA1Symbols = this.symbols.filter(s => s.id !== a1SymbolId);
+    
+    let attemptsUsed = 0;
+    let fallbackUsed = false;
+    let guardApplied = false;
+    
+    // 複製 grid（避免修改原始 grid）
+    let processedGrid = grid.map(row => [...row]);
+    
+    // 重試邏輯
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      attemptsUsed = attempt + 1;
+      
+      // 計算當前 a1Count
+      const currentCount = countA1(processedGrid);
+      
+      if (currentCount === targetCount) {
+        // 已達成目標
+        guardApplied = (attempt > 0);  // 如果有重試，表示應用了 guard
+        break;
+      }
+      
+      // 需要調整 a1Count
+      guardApplied = true;
+      
+      if (isTrigger && currentCount < targetCount) {
+        // Trigger 情況：需要增加 A1
+        const needed = targetCount - currentCount;
+        const availablePositions = [];
+        
+        // 收集所有非 A1 位置
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] !== a1SymbolId) {
+              availablePositions.push([row, col]);
+            }
+          }
+        }
+        
+        // 隨機選擇位置放置 A1
+        if (availablePositions.length >= needed) {
+          // 隨機選擇 N 個不重複的位置
+          const selectedPositions = [];
+          const remainingPositions = [...availablePositions];
+          for (let i = 0; i < needed && remainingPositions.length > 0; i++) {
+            const selected = anyPositionRng.selectFromArray(remainingPositions);
+            selectedPositions.push(selected);
+            const index = remainingPositions.indexOf(selected);
+            remainingPositions.splice(index, 1);
+          }
+          selectedPositions.forEach(([row, col]) => {
+            processedGrid[row][col] = a1SymbolId;
+          });
+        }
+      } else if (!isTrigger && currentCount > 0) {
+        // Non-trigger 情況：需要清除所有 A1（Anti-trigger guard）
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] === a1SymbolId) {
+              // 替換為非 A1 符號
+              const replacement = anyPositionRng.selectFromArray(nonA1Symbols);
+              processedGrid[row][col] = replacement.id;
+            }
+          }
+        }
+      } else if (isTrigger && currentCount > targetCount) {
+        // Trigger 情況：A1 過多，需要減少
+        const excess = currentCount - targetCount;
+        const a1Positions = [];
+        
+        // 收集所有 A1 位置
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] === a1SymbolId) {
+              a1Positions.push([row, col]);
+            }
+          }
+        }
+        
+        // 隨機選擇位置移除 A1
+        if (a1Positions.length >= excess) {
+          // 隨機選擇 N 個不重複的位置
+          const selectedPositions = [];
+          const remainingPositions = [...a1Positions];
+          for (let i = 0; i < excess && remainingPositions.length > 0; i++) {
+            const selected = anyPositionRng.selectFromArray(remainingPositions);
+            selectedPositions.push(selected);
+            const index = remainingPositions.indexOf(selected);
+            remainingPositions.splice(index, 1);
+          }
+          selectedPositions.forEach(([row, col]) => {
+            const replacement = anyPositionRng.selectFromArray(nonA1Symbols);
+            processedGrid[row][col] = replacement.id;
+          });
+        }
+      }
+      
+      // 檢查是否達成目標
+      const newCount = countA1(processedGrid);
+      if (newCount === targetCount) {
+        break;
+      }
+    }
+    
+    // STRICT 驗證
+    const finalCount = countA1(processedGrid);
+    if (finalCount !== targetCount) {
+      // 如果重試失敗，使用 fallback
+      fallbackUsed = true;
+      
+      // Fallback：強制達成目標（優先 Truth Source）
+      if (isTrigger && finalCount < targetCount) {
+        // 強制放置 A1（即使可能影響其他邏輯）
+        const needed = targetCount - finalCount;
+        const availablePositions = [];
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] !== a1SymbolId) {
+              availablePositions.push([row, col]);
+            }
+          }
+        }
+        if (availablePositions.length >= needed) {
+          // 隨機選擇 N 個不重複的位置
+          const selectedPositions = [];
+          const remainingPositions = [...availablePositions];
+          for (let i = 0; i < needed && remainingPositions.length > 0; i++) {
+            const selected = anyPositionRng.selectFromArray(remainingPositions);
+            selectedPositions.push(selected);
+            const index = remainingPositions.indexOf(selected);
+            remainingPositions.splice(index, 1);
+          }
+          selectedPositions.forEach(([row, col]) => {
+            processedGrid[row][col] = a1SymbolId;
+          });
+        }
+      } else if (!isTrigger && finalCount > 0) {
+        // 強制清除所有 A1
+        for (let row = 0; row < processedGrid.length; row++) {
+          for (let col = 0; col < processedGrid[row].length; col++) {
+            if (processedGrid[row][col] === a1SymbolId) {
+              const replacement = anyPositionRng.selectFromArray(nonA1Symbols);
+              processedGrid[row][col] = replacement.id;
+            }
+          }
+        }
+      }
+      
+      // 最終驗證（如果仍然失敗，throw）
+      const finalCountAfterFallback = countA1(processedGrid);
+      if (finalCountAfterFallback !== targetCount) {
+        throw new Error(
+          `v1.5.3 STRICT: Any-Position count mismatch: expected=${targetCount}, actual=${finalCountAfterFallback}, ` +
+          `outcome=${outcome.id}, seed=${mathSeed}, spin=${spinIndex}`
+        );
+      }
+    }
+    
+    return {
+      grid: processedGrid,
+      telemetry: {
+        count: countA1(processedGrid),
         guardApplied: guardApplied,
         attemptsUsed: attemptsUsed,
         fallbackUsed: fallbackUsed

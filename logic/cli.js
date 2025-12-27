@@ -272,7 +272,8 @@ function csvEscape(field) {
 
 function generateCSV(spinLog) {
   // v1.5.2: CSV Header（包含所有 telemetry 欄位 + shadow mode 欄位 + FSM/Scatter 欄位）
-  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount,visualRequestedType,visualAppliedType,visualApplied,visualPaylinesChosen,visualAttemptsUsed,visualGuardFailReason,visualSeed,teaseEligible,teaseChanceUsed,teaseRoll,teaseBlockedBy,visualGuardFailDetail,visualAttemptReasons,expectedWinAmount,evaluatedWinAmount,evaluationMatch,evaluatedEventCount,evaluatedRuleTypes,eventsJson,stateBefore,stateAfter,freeRemainingAfter,scatterCount,scatterGuardApplied,scatterAttemptsUsed,scatterFallbackUsed';
+  // v1.5.3: 新增 Any-Position 欄位
+  const header = 'globalSpinIndex,baseSpinIndex,state,outcomeId,type,winAmount,triggeredFeatureId,patternSource,winConditionType,generatedWinLine,anchorsCount,visualRequestedType,visualAppliedType,visualApplied,visualPaylinesChosen,visualAttemptsUsed,visualGuardFailReason,visualSeed,teaseEligible,teaseChanceUsed,teaseRoll,teaseBlockedBy,visualGuardFailDetail,visualAttemptReasons,expectedWinAmount,evaluatedWinAmount,evaluationMatch,evaluatedEventCount,evaluatedRuleTypes,eventsJson,stateBefore,stateAfter,freeRemainingAfter,scatterCount,scatterGuardApplied,scatterAttemptsUsed,scatterFallbackUsed,anyPosSymbolId,anyPosTargetCount,anyPosActualCount,anyPosGuardApplied,anyPosAttemptsUsed,anyPosFallbackUsed';
   
   // CSV Rows
   const rows = spinLog.map(log => {
@@ -329,7 +330,14 @@ function generateCSV(spinLog) {
       csvEscape(log.scatterCount !== undefined ? log.scatterCount : 0),
       csvEscape(log.scatterGuardApplied !== undefined ? (log.scatterGuardApplied ? 'true' : 'false') : 'false'),
       csvEscape(log.scatterAttemptsUsed !== undefined ? log.scatterAttemptsUsed : 0),
-      csvEscape(log.scatterFallbackUsed !== undefined ? (log.scatterFallbackUsed ? 'true' : 'false') : 'false')
+      csvEscape(log.scatterFallbackUsed !== undefined ? (log.scatterFallbackUsed ? 'true' : 'false') : 'false'),
+      // v1.5.3: Any-Position Telemetry
+      csvEscape(log.anyPosSymbolId || ''),
+      csvEscape(log.anyPosTargetCount !== undefined && log.anyPosTargetCount !== '' ? log.anyPosTargetCount : ''),
+      csvEscape(log.anyPosActualCount !== undefined ? log.anyPosActualCount : 0),
+      csvEscape(log.anyPosGuardApplied !== undefined ? (log.anyPosGuardApplied ? 'true' : 'false') : 'false'),
+      csvEscape(log.anyPosAttemptsUsed !== undefined ? log.anyPosAttemptsUsed : 0),
+      csvEscape(log.anyPosFallbackUsed !== undefined ? (log.anyPosFallbackUsed ? 'true' : 'false') : 'false')
     ];
     
     return row.join(',');

@@ -204,6 +204,10 @@ function validateConfig(configPath) {
             if (!outcome.winCondition.symbolId) {
               result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (LINE) 缺少 symbolId`);
             }
+            // v1.5.3: [STRICT] 檢查 A1 不得出現在 LINE rules
+            if (outcome.winCondition.symbolId === 'A1') {
+              result.addError(`v1.5.3 STRICT: ${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (LINE) 不得使用 A1 符號（A1 僅用於 ANY_POSITION）`);
+            }
             if (typeof outcome.winCondition.matchCount !== 'number') {
               result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (LINE) 的 matchCount 必須為數字`);
             } else {
@@ -245,8 +249,31 @@ function validateConfig(configPath) {
                 );
               }
             }
+          } else if (wcType === 'ANY_POSITION') {
+            // v1.5.3: ANY_POSITION 類型必須包含 symbolId 和 targetCount
+            if (!outcome.winCondition.symbolId) {
+              result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (ANY_POSITION) 缺少 symbolId`);
+            }
+            if (typeof outcome.winCondition.targetCount !== 'number') {
+              result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition (ANY_POSITION) 的 targetCount 必須為數字`);
+            } else {
+              // 檢查 targetCount 是否合理
+              if (outcome.winCondition.targetCount < 2) {
+                result.addWarning(
+                  `${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.targetCount (${outcome.winCondition.targetCount}) 小於 2，可能不合理`
+                );
+              }
+              const gridSize = config.gameRules && config.gameRules.BASE && config.gameRules.BASE.grid
+                ? config.gameRules.BASE.grid.rows * config.gameRules.BASE.grid.cols
+                : 15;  // 預設 5x3
+              if (outcome.winCondition.targetCount > gridSize) {
+                result.addError(
+                  `${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.targetCount (${outcome.winCondition.targetCount}) 超過盤面大小 (${gridSize})`
+                );
+              }
+            }
           } else {
-            result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.type 不支援: ${wcType} (僅支援 LINE, SCATTER)`);
+            result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winCondition.type 不支援: ${wcType} (僅支援 LINE, SCATTER, ANY_POSITION)`);
           }
         }
       }
@@ -259,6 +286,10 @@ function validateConfig(configPath) {
           // 檢查 winConfig 結構（僅當存在時）
           if (!outcome.winConfig.symbolId) {
             result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winConfig 缺少 symbolId`);
+          }
+          // v1.5.3: [STRICT] 檢查 A1 不得出現在 LINE rules (winConfig)
+          if (outcome.winConfig.symbolId === 'A1') {
+            result.addError(`v1.5.3 STRICT: ${state} 狀態中的 Outcome "${outcome.id}" 的 winConfig 不得使用 A1 符號（A1 僅用於 ANY_POSITION）`);
           }
           if (typeof outcome.winConfig.matchCount !== 'number') {
             result.addError(`${state} 狀態中的 Outcome "${outcome.id}" 的 winConfig.matchCount 必須為數字`);

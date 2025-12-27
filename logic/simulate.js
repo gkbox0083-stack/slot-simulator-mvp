@@ -554,6 +554,31 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
     const scatterAttemptsUsed = scatterTelemetry.attemptsUsed;
     const scatterFallbackUsed = scatterTelemetry.fallbackUsed;
     
+    // v1.5.3: 從 any-position layer 獲取 telemetry
+    const anyPositionTelemetry = patternResult.anyPositionTelemetry || {
+      count: 0,
+      guardApplied: false,
+      attemptsUsed: 0,
+      fallbackUsed: false
+    };
+    const anyPosActualCount = anyPositionTelemetry.count;
+    const anyPosGuardApplied = anyPositionTelemetry.guardApplied;
+    const anyPosAttemptsUsed = anyPositionTelemetry.attemptsUsed;
+    const anyPosFallbackUsed = anyPositionTelemetry.fallbackUsed;
+    
+    // v1.5.3: 從 outcome 獲取 any-position 目標資訊
+    const anyPosSymbolId = outcome.winCondition && outcome.winCondition.type === 'ANY_POSITION'
+      ? outcome.winCondition.symbolId
+      : '';
+    const anyPosTargetCount = outcome.winCondition && outcome.winCondition.type === 'ANY_POSITION'
+      ? outcome.winCondition.targetCount
+      : '';
+    
+    // v1.5.3: 更新 winConditionType（如果為 ANY_POSITION）
+    const winConditionType = outcome.winCondition && outcome.winCondition.type === 'ANY_POSITION'
+      ? 'ANY_POSITION'
+      : (patternResult.winConditionType || null);
+    
     // v1.1: Spin Logging (CSV Data Source)
     if (spinLog) {
       const baseSpinIndex = previousState === STATE.BASE 
@@ -602,7 +627,7 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         triggeredFeatureId: triggeredFeatureId,
         // v1.4: Pattern Generation 資訊
         patternSource: patternResult.patternSource || 'NONE',
-        winConditionType: patternResult.winConditionType || null,
+        winConditionType: winConditionType,  // v1.5.3: 已更新（支援 ANY_POSITION）
         generatedWinLine: patternResult.winLine !== null ? patternResult.winLine : null,
         anchorsCount: patternResult.anchorsCount || 0,
         // Phase A3: Visual Telemetry（已 finalize）
@@ -632,11 +657,18 @@ function simulate(configPath, targetBaseSpins = 10000, customBet = null, customR
         stateBefore: stateBefore,
         stateAfter: stateAfter,
         freeRemainingAfter: freeRemainingAfter,
-        // v1.5.2: Scatter Telemetry（預留，Step 4 會更新）
+        // v1.5.2: Scatter Telemetry
         scatterCount: scatterCount,
         scatterGuardApplied: scatterGuardApplied,
         scatterAttemptsUsed: scatterAttemptsUsed,
-        scatterFallbackUsed: scatterFallbackUsed
+        scatterFallbackUsed: scatterFallbackUsed,
+        // v1.5.3: Any-Position Telemetry
+        anyPosSymbolId: anyPosSymbolId,
+        anyPosTargetCount: anyPosTargetCount,
+        anyPosActualCount: anyPosActualCount,
+        anyPosGuardApplied: anyPosGuardApplied,
+        anyPosAttemptsUsed: anyPosAttemptsUsed,
+        anyPosFallbackUsed: anyPosFallbackUsed
       });
     }
 

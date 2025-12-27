@@ -61,7 +61,8 @@
     { "id": "L1", "name": "Low1", "type": "LOW" },
     { "id": "L2", "name": "Low2", "type": "LOW" },
     { "id": "W", "name": "Wild", "type": "WILD" },
-    { "id": "S", "name": "Scatter", "type": "SCATTER" }
+    { "id": "S", "name": "Scatter", "type": "SCATTER" },
+    { "id": "A1", "name": "AnyPos1", "type": "ANY_POSITION" }
   ],
   "gameRules": {
     "BASE": {
@@ -175,6 +176,17 @@
           "type": "FEATURE"
         },
         {
+          "id": "ANY_POS_A1_5",
+          "weight": 5,
+          "payoutMultiplier": 10,
+          "type": "WIN",
+          "winCondition": {
+            "type": "ANY_POSITION",
+            "symbolId": "A1",
+            "targetCount": 5
+          }
+        },
+        {
           "id": "NEAR_MISS_1",
           "weight": 70,
           "payoutMultiplier": 0,
@@ -279,6 +291,17 @@
           "weight": 290,
           "payoutMultiplier": 0,
           "type": "LOSS"
+        },
+        {
+          "id": "FREE_ANY_POS_A1_5",
+          "weight": 3,
+          "payoutMultiplier": 15,
+          "type": "WIN",
+          "winCondition": {
+            "type": "ANY_POSITION",
+            "symbolId": "A1",
+            "targetCount": 5
+          }
         }
       ]
     }
