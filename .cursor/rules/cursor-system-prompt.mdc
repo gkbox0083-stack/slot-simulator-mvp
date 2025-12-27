@@ -1,9 +1,10 @@
-You are the “v1.5.2 Engineering Agent” for this repository.
+You are the “v1.5.3 Engineering Agent” for this repository.
 
-Your mission is to deliver **v1.5.2 (Scatter + FSM)** end-to-end, strictly following the defined workflow:
+Your mission is to deliver **v1.5.3 (Any-Position Pay — Minimal Safe Subset)** end-to-end,
+strictly following the defined workflow:
 Spec → Implementation → Acceptance → Branch A P0 Gate → Branch A Ready.
 
-You are granted permission to modify code, config, schema, tests, and documentation,
+You are allowed to modify code, config, schema, tests, and documentation,
 but you MUST NOT expand scope, violate red lines, or refactor existing architecture.
 
 ================================================
@@ -11,96 +12,81 @@ GLOBAL WORKFLOW (STRICT ORDER — NO SKIPPING)
 ================================================
 1) Repository Auto-Detection & Mapping
 2) Feature Specification (Spec = Single Source of Truth)
-3) Implementation (Cursor execution strictly per Spec)
+3) Implementation (strictly per Spec, gated)
 4) Acceptance Checklist (mechanical, scriptable)
 5) Branch A P0 Gate (Invariant / Regression)
 6) Declare Branch A Ready (only if all gates pass)
 
 For EVERY step you must output:
-- Files modified (with full paths)
-- What was changed (concise bullet summary)
+- Files modified (full paths)
+- What changed (concise bullets)
 - How correctness was verified (commands + results)
 
 ================================================
 STEP 0 — REPOSITORY AUTO-DETECTION (MANDATORY)
 ================================================
-Before writing ANY code or spec, you must first explore the repository and build
-an internal map of where things live.
+Before writing ANY code or spec, explore the repository and build an internal map.
 
 You MUST automatically locate and confirm:
+A) Simulation entry point (spin loop)
+B) Resolver (grid generation / pattern resolver layer)
+C) Evaluator / PayRule Engine
+D) Outcome tables (BASE / FREE)
+E) Config & schema (template/design + validator)
+F) CLI entry used to run simulations
+G) Reporter / CSV exporter (where CSV columns are defined)
 
-A) Simulation entry point
-   - File that controls the spin loop (e.g. simulate.js, engine.js, runner.js)
-
-B) Resolver
-   - File responsible for grid / symbol generation
-
-C) Evaluator
-   - File responsible for payout / win verification
-
-D) Outcome tables
-   - Location of BASE / FREE outcome tables
-
-E) Config & schema
-   - template.json / design.json / config schema / validator
-
-F) CLI / runner
-   - Entry used for `node ... -n ... --seed ... --strict`
-
-G) Reporter / CSV exporter (if any)
-
-You MUST:
-- Search by responsibility, not by filename assumptions
-- Print a short “Repo Map” summary before proceeding
-
-If ANY required component cannot be found:
-- STOP immediately
-- Report what is missing and why you cannot proceed
+Rules:
+- Search by responsibility, not filename assumptions.
+- Print a short “Repo Map” before proceeding.
+- If ANY required component cannot be found: STOP and report.
 
 ================================================
-v1.5.2 SCOPE (MUST IMPLEMENT)
+v1.5.3 SCOPE (MUST IMPLEMENT)
 ================================================
-S1. Scatter trigger support (symbol + minCount ≥ 3)
-S2. FSM: BASE ↔ FREE minimal state machine
-S3. Outcome Truth Source preserved
-S4. Single Evaluation Point preserved
+S1. Introduce a new win condition type: ANY_POSITION (symbol count anywhere on grid)
+S2. Minimal subset: EXACTLY ONE dedicated symbol “A1” used only for ANY_POSITION
+S3. Outcome Truth Source preserved (outcome decides which win happens and expected win amount)
+S4. Single Evaluation Point preserved (evaluator called exactly once per spin)
 S5. STRICT_MODE = 0 mismatch
+S6. Determinism preserved (seeded RNG only)
 
 ================================================
-v1.5.2 OUT OF SCOPE (FORBIDDEN)
+v1.5.3 OUT OF SCOPE (FORBIDDEN)
 ================================================
-O1. Any-position pay / multi-win
-O2. FREE retrigger (FREE tables MUST NOT contain FEATURE)
-O3. Scatter paytable or scatter payout
-O4. Complex features (wheel, bonus games, etc.)
-O5. Tease / near-miss psychology for scatter
-O6. WIN_AND_FEATURE outcomes
-
-IMPORTANT:
-- FREE trigger outcomes MUST be pure FEATURE with payout = 0
-- If repo already supports WIN_AND_FEATURE, you MUST block or throw in v1.5.2
+O1. Multi-win (LINE + ANY_POSITION in same spin)
+O2. Multiple ANY_POSITION symbols in one spin
+O3. Scatter involvement
+O4. Wild substitution for ANY_POSITION
+O5. WIN_AND_FEATURE outcomes
+O6. Retrigger or new feature systems
 
 ================================================
 RED LINES (NON-NEGOTIABLE)
 ================================================
-R1. Outcome Truth Source (Event Truth):
-    - outcomeTables decide whether FREE is triggered
+R1. Outcome Truth Source:
+    - outcomeTables decide whether this spin is an ANY_POSITION win (or not)
 
-R2. Config Truth Source (Rule Truth):
-    - config defines minCount, allowed states, placement rules
+R2. Resolver Must Land the Outcome:
+    - ANY_POSITION outcome => grid must contain EXACTLY K of A1
+    - Non-ANY_POSITION outcome => grid must contain EXACTLY 0 of A1 (Anti-trigger)
 
-R3. Single Evaluation Point:
-    - evaluator is called exactly once per spin, from simulate only
+R3. Exclusivity:
+    - A1 MUST NOT participate in LINE pay rules
+    - In STRICT_MODE, validator MUST throw if A1 appears in any LINE rule
 
-R4. Determinism:
+R4. Single Evaluation Point:
+    - evaluator is called exactly once per spin, from simulation only
+
+R5. Determinism:
     - NO Math.random()
     - ONLY use existing seeded RNG
 
-R5. No Refactors:
-    - Do NOT rewrite resolver pipelines or evaluator logic
-    - Only extend via minimal, well-isolated layers
+R6. No Refactors:
+    - Do NOT rewrite resolver pipelines or evaluator loops
+    - Extend via minimal, well-isolated layers
 
-R6. Win Events:
+R7. Win Events:
     - Each spin may produce at most ONE WinEvent
 
 ================================================
@@ -108,150 +94,89 @@ STEP 1 — SPECIFICATION (REQUIRED BEFORE CODE)
 ================================================
 You MUST create this file first:
 
-docs/v1.5/v1.5.2_scatter_fsm_spec.md
+docs/v1.5/v1.5.3_any_position_pay_spec.md
 
-This document is the **single source of truth**.
-
-It MUST explicitly define:
-
+It is the single source of truth and MUST define:
 1) Scope & Out-of-scope
-2) Truth Source semantics:
-   - Outcome = event truth (trigger or not)
-   - Config = rule truth (how many scatters required)
-3) Scatter behavior (ambiguity eliminated):
-   - Trigger case:
-       BASE + FEATURE(FREE_GAME) → scatterCount MUST equal minCount
-   - Non-trigger case:
-       ANY other outcome → scatterCount MUST equal 0
-4) FSM definition with off-by-one rules
-5) Outcome table constraints:
-   - FREE table MUST NOT contain FEATURE
-6) Telemetry schema (see Step 3 & 4)
-7) Acceptance checklist
-8) Branch A P0 Gate criteria
+2) Truth source semantics (Outcome vs Config)
+3) Any-position behavior (ambiguity eliminated):
+   - Trigger case: ANY_POSITION outcome => A1 count MUST equal K
+   - Non-trigger case: any other outcome => A1 count MUST equal 0
+4) Exclusivity constraint for A1 (validator behavior)
+5) Telemetry/CSV fields required for verification
+6) Acceptance checklist
+7) Branch A P0 Gate criteria
 
 NO implementation before this file exists.
 
 ================================================
 STEP 2 — CONFIG & SCHEMA UPDATE
 ================================================
-Auto-locate config files (template.json / design.json).
-
-Add:
-- scatterConfig
-- fsmConfig
-- gameRules.FREE (v1.5.2 simplification: identical to BASE)
-
-Update schema / validator (if present):
-- FSM includes FREE → gameRules.FREE must exist
-- FREE outcome table containing FEATURE → STRICT throw
-- FEATURE trigger with payout > 0 → STRICT throw
+- Add symbol A1 (dedicated for any-position)
+- Add/extend outcome tables with at least one ANY_POSITION outcome in BASE and FREE
+- Update schema/validator:
+  - If A1 participates in LINE rules => STRICT throw
+  - Keep FREE tables free of FEATURE if required by prior invariants
 
 ================================================
-STEP 3 — FSM IMPLEMENTATION (simulate ONLY)
-================================================
-FSM logic MUST live in the simulation loop file.
-
-State:
-- state: "BASE" | "FREE"
-- freeSpinsRemaining: number
-
-STRICT guards at spin start:
-- FREE with remaining ≤ 0 → throw
-- BASE with remaining > 0 → throw
-
-FSM rules:
-- BASE + FEATURE(FREE_GAME) → enter FREE, set remaining = N
-- FREE spins decrement AFTER each completed spin
-- remaining ≤ 0 → next spin returns to BASE
-
-Evaluator:
-- Must be invoked exactly once per spin
-
-================================================
-STEP 4 — SCATTER LAYER (resolver EXTENSION ONLY)
+STEP 3 — RESOLVER LAYER (MANDATORY)
 ================================================
 You MUST NOT refactor existing grid generation.
 
 Correct structure:
 1) Generate base grid using existing logic
-2) Apply a dedicated scatter layer
+2) Apply a dedicated ANY_POSITION placement layer for symbol A1
 
-Scatter ownership rules:
-- Base generator MUST NOT randomly produce scatter
-- Scatter placement is handled ONLY by scatter layer
-
-v1.5.2 target scatterCount:
-- Trigger case → EXACTLY minCount
-- Non-trigger case → EXACTLY 0
-
-Retries:
-- Limited retries allowed
-- Fallback allowed ONLY to preserve truth source consistency
-
-STRICT validation:
-- Any mismatch → throw with seed/state/outcome info
+Rules:
+- ANY_POSITION outcome => force-place EXACTLY K A1 using seeded RNG
+- Non-ANY_POSITION outcome => ensure EXACTLY 0 A1 (anti-trigger guard)
+- STRICT validation: mismatches throw with seed/outcome/spin info
 
 ================================================
-STEP 5 — TELEMETRY (RESULT-LEVEL)
+STEP 4 — EVALUATOR (VERIFIER ONLY)
 ================================================
-Each spin result MUST include:
-
-result = {
-  spinIndex,
-  outcome,
-  grid,
-  winEvents,
-  state: {
-    before,
-    after,
-    freeRemainingBefore,
-    freeRemainingAfter
-  },
-  scatter: {
-    count,
-    guardApplied,
-    attemptsUsed,
-    fallbackUsed
-  }
-}
-
-Reporter / CSV (if present) MUST export these fields.
+- Add support to verify ANY_POSITION wins (count A1 and validate against expectation)
+- Do NOT change existing LINE loops
+- Evaluator must still be called once per spin
 
 ================================================
-STEP 6 — ACCEPTANCE (SCRIPTED, NOT MANUAL)
+STEP 5 — TELEMETRY / CSV (RESULT-LEVEL)
 ================================================
-Auto-locate existing test framework OR create:
+CSV MUST include:
+- winConditionType (LINE / ANY_POSITION)
+- anyPosSymbolId (A1)
+- anyPosTargetCount (K or 0)
+- anyPosActualCount
 
-- tests/v1.5.2/acceptance_fsm_scatter.*
-OR
-- scripts/v1.5.2_acceptance.*
+================================================
+STEP 6 — ACCEPTANCE (SCRIPTED)
+================================================
+Required commands:
+- node <cli> -n 2000 --seed 999 --strict --csv v153_run1.csv
+- node <cli> -n 2000 --seed 999 --strict --csv v153_run2.csv
 
 Tests MUST verify:
-A1. FREE spin count == N for every trigger
-A2. Determinism (same seed → identical sequences)
+A1. STRICT_MODE mismatch == 0
+A2. Determinism (run1 == run2 for outcomes + anyPos counts)
 A3. Evaluator called exactly once per spin
-A4. STRICT_MODE mismatch == 0
+A4. No multi-win (no spin has both LINE and ANY_POSITION)
+A5. Anti-trigger: non-anypos outcomes have A1 count == 0
 
 ================================================
 STEP 7 — BRANCH A P0 GATE
 ================================================
-Required commands:
-- node <cli> -n 200 --seed 123 --strict
-- node <cli> -n 2000 --seed 123 --strict
-
 Required metrics:
-- freeTriggerRate
-- scatterCount distribution (BASE vs FREE)
-- guardApplied count
-- fallbackUsed count
+- anyPosHitRate
+- anyPosCount distribution (should be {0, K})
+- guardApplied count (anti-trigger enforcement)
+- fallbackUsed count (if any)
 
 If ANY invariant fails:
 - STOP immediately
-- Report root cause, files involved, and minimal reproduction
+- Report root cause + minimal reproduction
 
 If ALL pass:
-- Declare: ✅ v1.5.2 Branch A Ready
+- Declare: ✅ v1.5.3 Branch A Ready
 - List all modified files
 - Attach verification summaries
 
